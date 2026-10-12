@@ -57,7 +57,7 @@ jobs:
         ports:
           - 3306/tcp
         options: >-
-          --health-cmd "mysqladmin --protocol TCP --host 127.0.0.1 ping --silent"
+          --health-cmd "bash -c 'echo > /dev/tcp/127.0.0.1/3306'"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
