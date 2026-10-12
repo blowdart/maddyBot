@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preserve-event:
+    name: Preserve reporting context
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Preserve original workflow event
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-event
+          path: ${{ github.event_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: maddybot_tests
+          POSTGRES_USER: maddybot_test
+          POSTGRES_PASSWORD: ci-only-postgres
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready --host 127.0.0.1 --username maddybot_test --dbname maddybot_tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-mysql
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_PWD: ci-only-mysql
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd "mysql --protocol TCP --host 127.0.0.1 --user root --execute 'SELECT 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Restore dependencies
+        run: dotnet restore MaddyBot.slnx
+      - name: Build Debug solution
+        run: dotnet build MaddyBot.slnx --configuration Debug --no-incremental --no-restore
+      - name: Check formatting
+        run: dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore
+      - name: Run all tests
+        id: test
+        env:
+          MADDYBOT_TEST_CONNECTION: "Host=127.0.0.1;Port=${{ job.services.postgres.ports['5432'] }};Database=maddybot_tests;Username=maddybot_test;Password=ci-only-postgres;SSL Mode=Disable"
+          MADDYBOT_TEST_MYSQL_CONNECTION: "Server=127.0.0.1;Port=${{ job.services.mysql.ports['3306'] }};User ID=root;Password=ci-only-mysql;SslMode=None;Pooling=False;AllowPublicKeyRetrieval=True"
+        run: dotnet test MaddyBot.slnx --configuration Debug --no-build --no-restore --results-directory TestResults --logger "trx;LogFileName=tests.trx"
+      - name: Verify tests ran without skips
+        if: ${{ always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        run: |
+          $files = @(Get-ChildItem -LiteralPath TestResults -Filter '*.trx' -ErrorAction SilentlyContinue)
+          if ($files.Count -ne 1) {
+            throw 'Expected exactly one TRX file from the full test suite.'
+          }
+          [xml] $results = Get-Content -LiteralPath $files[0].FullName -Raw
+          $counters = $results.SelectSingleNode("/*[local-name()='TestRun']/*[local-name()='ResultSummary']/*[local-name()='Counters']")
+          if ($null -eq $counters -or [int] $counters.total -le 0 -or [int] $counters.passed -ne [int] $counters.total) {
+            throw 'Every test must run and pass; failed or skipped tests are not accepted as database coverage.'
+          }
+          "$($counters.passed) tests passed with zero skips against isolated PostgreSQL, MySQL, and SQLite storage." >> $env:GITHUB_STEP_SUMMARY
+      - name: Preserve database diagnostics
+        if: ${{ failure() }}
+        run: |
+          New-Item -ItemType Directory -Path TestResults -Force | Out-Null
+          docker logs '${{ job.services.postgres.id }}' *> TestResults/postgres.log
+          docker logs '${{ job.services.mysql.id }}' *> TestResults/mysql.log
+      - name: Upload test results and diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-aot:
+    name: Linux Native AOT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build release image
+        shell: bash
+        run: docker build --platform linux/amd64 --progress plain --build-arg GITHUB_ACTIONS=true --build-arg GITHUB_REF="$GITHUB_REF" --build-arg GITHUB_SHA="$GITHUB_SHA" --tag maddybot:ci . 2>&1 | tee native-build.log
+      - name: Smoke-test native executable
+        shell: bash
+        run: docker run --rm --network none maddybot:ci --help 2>&1 | tee native-smoke.log
+      - name: Upload native build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-aot-logs
+          path: |
+            native-build.log
+            native-smoke.log
+          if-no-files-found: warn
+          retention-days: 14

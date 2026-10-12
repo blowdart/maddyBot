@@ -1,0 +1,37 @@
+version: 2
+
+registries:
+  idunno-prerelease:
+    type: nuget-feed
+    url: https://packages.idunno.blue/feed/index.json
+
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    registries:
+      - idunno-prerelease
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      idunno-sdk:
+        patterns:
+          - "idunno.AtProto"
+          - "idunno.AtProto.*"
+          - "idunno.Bluesky"
+          - "idunno.Bluesky.*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

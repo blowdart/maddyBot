@@ -16,7 +16,7 @@ multi-target testing and public API baseline rules do not apply to this app.
 ## Build, test, and formatting
 
 * Use the SDK pinned in `global.json` and `MaddyBot.slnx`.
-* Restore: `dotnet restore MaddyBot.slnx --locked-mode`.
+* Restore: `dotnet restore MaddyBot.slnx`.
 * Build: `dotnet build MaddyBot.slnx -c Debug --no-incremental`.
 * Tests use **xUnit v2 and VSTest**, not Microsoft.Testing.Platform or xUnit v3.
 * Run tests: `dotnet test MaddyBot.slnx`.
@@ -104,8 +104,11 @@ that selects the active process during overlapping deployments.
 * Versions are centralized in `Directory.Packages.props`. Verify an exact SDK
   prerelease exists in the configured publisher feed before updating; do not
   guess versions or assume a PR commit is published.
-* Update both lock files through restore and verify locked restore. Review replay
-  compatibility and SDK-specific generation-mismatch classification on upgrades.
+* Nerdbank.GitVersioning is scoped to the MaddyBot project. Keep its package
+  reference out of the reusable SDK project; version and release intent belong
+  in the root `version.json` and do not require Git tags.
+* Restore dependencies after version changes. Review replay compatibility and
+  SDK-specific generation-mismatch classification on upgrades.
 * Keep `THIRD-PARTY-NOTICES` up to date whenever dependencies are added, removed
   or upgraded, including transitive, build and test dependencies. Verify licenses,
   copyright attribution and bundled third-party notices against the actual

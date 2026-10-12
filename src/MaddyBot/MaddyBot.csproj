@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
+    <AssemblyTitle>Bluesky Watcher and Reply Bot</AssemblyTitle>
+    <Description>Watches Bluesky posts and replies to matching content.</Description>
     <UserSecretsId>maddybot-development</UserSecretsId>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PublishAot>true</PublishAot>
@@ -7,6 +9,7 @@
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="All" />
     <PackageReference Include="System.CommandLine" />
     <ProjectReference Include="..\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj" />
     <InternalsVisibleTo Include="MaddyBot.Tests" />

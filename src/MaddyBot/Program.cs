@@ -16,6 +16,11 @@ using BotOptions = MaddyBot.BotOptions;
 // output is redirected. A program reading redirected output must decode it as UTF-8 too.
 Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
+if (!Console.IsOutputRedirected)
+{
+    Console.Title = $"MaddyBot v{ThisAssembly.AssemblyInformationalVersion}";
+}
+
 DateTimeOffset startedAt = DateTimeOffset.UtcNow;
 
 // Handle help and invalid commands before loading secrets or connecting to dependencies.

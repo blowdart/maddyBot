@@ -182,7 +182,7 @@ only replies.
 Install the .NET 10 SDK and Docker, then:
 
 ```powershell
-dotnet restore MaddyBot.slnx --locked-mode
+dotnet restore MaddyBot.slnx
 dotnet build MaddyBot.slnx --no-restore
 dotnet test MaddyBot.slnx --no-build
 ```
@@ -198,13 +198,30 @@ New replies receive a lexicon-valid TID from `TimestampIdentifier.Next()` before
 enqueue; generic keys such as `maddy-<GUID>` are not valid post record keys.
 Existing queued work keeps its saved key and is never silently re-keyed.
 
+### Versioning
+
+MaddyBot uses [Nerdbank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning)
+to stamp its assembly and executable with version information derived from Git.
+The SDK project does not use this package. The committed
+`version.json` starts at `1.0-alpha`; no Git tags are required. CI fetches full
+history so version height and commit identity are calculated for the build.
+
+Version intent is recorded in `version.json`, not injected during release builds.
+For a stable `1.0` release, commit a change from `"version": "1.0-alpha"` to
+`"version": "1.0"`. To start the next prerelease line, commit `"version":
+"1.1-alpha"`. Builds from `main` are configured as public releases; other refs
+include a commit identifier so their versions remain distinct. The informational
+version includes the Git commit ID. Managed builds in a Git working tree mark
+uncommitted changes `dirty`; the Docker build stamps the supplied commit ID
+without copying Git metadata into its context.
+
 Availability was checked before choosing the reference: nuget.org did not publish
 8.0.0, and the README's MyGet feed did not list the requested prerelease. With
 explicit approval, this repository uses the SDK publisher's
 `https://packages.idunno.blue/feed/index.json`, which contains the exact build.
 It does not silently substitute an older package or track a moving Git branch.
-Lock files include transitive package hashes. When upgrading, review replay
-checkpoint compatibility and the SDK-specific generation-mismatch classifier.
+When upgrading, review replay checkpoint compatibility and the SDK-specific
+generation-mismatch classifier.
 
 ### Native AOT
 
@@ -216,8 +233,15 @@ image rather than an ASP.NET runtime image. No .NET runtime is needed in the
 resulting container. Use Docker's Linux-container mode:
 
 ```powershell
-docker build --platform linux/amd64 --tag maddybot:dev .
+$commit = git rev-parse HEAD
+$ref = git symbolic-ref HEAD
+docker build --platform linux/amd64 --build-arg GITHUB_ACTIONS=true --build-arg "GITHUB_SHA=$commit" --build-arg "GITHUB_REF=$ref" --tag maddybot:dev .
 ```
+
+The Docker build does not copy `.git` into its context or image. Pass the commit
+and ref as build arguments so the native executable retains its commit identity.
+Because the build context has no Git history, the Docker build cannot calculate
+version height; CI's full-history managed build does.
 
 `BotJsonContext.cs` generates JSON metadata for credentials and health responses.
 `BotJson` in the same file reuses the SDK's generated metadata for posts, replay
@@ -229,13 +253,13 @@ when adding SDK types, use metadata supplied by the SDK.
 
 Native publish must run on the target operating system with its native toolchain.
 For a different architecture or OS, restore/publish for that runtime identifier,
-update the project's `RuntimeIdentifiers` and lock file deliberately, and validate the resulting executable; do
+update the project's `RuntimeIdentifiers` deliberately, and validate the resulting executable; do
 not assume the tested Linux-x64 image can run on ARM or Windows. A Windows native
 publish also needs the Visual Studio C++ build tools. AOT/trimming warnings are
 not suppressed by this application.
 
-The project locks both `win-x64` for local Windows development and `linux-x64`
-for the container, so an ordinary locked restore works on either host. The
+The project declares both `win-x64` for local Windows development and `linux-x64`
+for the container, so an ordinary restore works on either host. The
 native runtime checks performed for this sample target Linux x64; Windows native
 publishing has not been verified.
 
@@ -526,6 +550,11 @@ Actions use .NET **source-generated** `[LoggerMessage]` methods in `BotLog.cs` a
 human-readable console logging with UTC timestamps. Enqueue, simulate, send, reconcile, skip, cooldown, retry,
 authentication, ownership, and fatal outcomes carry structured properties and
 stable event IDs. Secrets and credential objects are not logged.
+Optional observations use explicit descriptions such as "unbounded", "not yet
+observed", or "not yet saved" instead of displaying `(null)` or inventing zero
+values. HTTP outcomes include a cooldown clause only when a future deadline
+exists. Available sequence numbers, timestamps, and durations remain typed
+structured properties.
 
 MaddyBot explicitly enables Information-level logs for
 `idunno.Bluesky.BotSdk.ActionDispatcher` in `appsettings.json`. Outcome logs
@@ -583,7 +612,9 @@ Compare catch-up overflow counts, event-time lag and memory after restarting.
 ## Docker and hosting
 
 ```powershell
-docker build --platform linux/amd64 --tag maddybot:dev .
+$commit = git rev-parse HEAD
+$ref = git symbolic-ref HEAD
+docker build --platform linux/amd64 --build-arg GITHUB_ACTIONS=true --build-arg "GITHUB_SHA=$commit" --build-arg "GITHUB_REF=$ref" --tag maddybot:dev .
 ```
 
 The image runs as the .NET non-root user on port 8080. Its Docker `HEALTHCHECK`
@@ -632,6 +663,37 @@ single-host deployments only when its database file lives on persistent local
 storage.
 
 ## Tests
+
+The [CI workflow](.github/workflows/ci.yml) runs on pull requests and pushes to
+`main`, and can also be started manually. It restores dependencies, builds
+the Debug solution using full Git history for version calculation, checks
+formatting, and runs the full suite against disposable
+PostgreSQL 16 and MySQL 8.4 services plus isolated SQLite files. Skipped tests fail
+the coverage gate. A separate job builds the Linux x64 Native AOT Docker image
+and runs `--help` with networking disabled; CI never authenticates a real bot
+or publishes Bluesky actions.
+
+Actions are pinned to immutable commit SHAs. Test results, database failure logs,
+and native build logs are retained as workflow artifacts for 14 days so the
+original failure can be diagnosed before rerunning a job. The separate
+[Test Results workflow](.github/workflows/test-results.yml) publishes the saved
+TRX results as a check on the tested commit and a comment on pull requests,
+including fork pull requests. It uses the original CI event to associate results
+with the correct PR and never checks out or executes PR code with write permissions.
+Missing or inconclusive results fail reporting rather than being presented as
+passing tests. The database passwords
+in the workflow are public, disposable CI-only values, not deployment credentials.
+
+[Dependabot](.github/dependabot.yml) checks NuGet packages, SHA-pinned GitHub
+Actions, and Docker base images weekly and opens update pull requests. The
+NuGet configuration includes the public idunno prerelease feed and groups the
+related idunno SDK packages into one update. Version updates in all three ecosystems have a
+seven-day cooldown after publication, allowing time for newly published malicious
+releases to be detected. This reduces risk but does not guarantee package safety;
+Dependabot security updates bypass the cooldown, and ordinary restores do not
+enforce it for newly resolved transitive dependencies. Review SDK replay compatibility and
+update `THIRD-PARTY-NOTICES` for dependency changes before merging; updates are
+not automatically merged.
 
 Unit tests do not contact Bluesky. The provider-test runner is located alongside
 the SDK's database creation helpers:
