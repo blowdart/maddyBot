@@ -79,8 +79,25 @@ jobs:
         run: dotnet build MaddyBot.slnx --configuration Debug --no-incremental --no-restore
       - name: Check formatting
         run: |
-          # Match .editorconfig's CRLF working-tree setting while preserving normalized Git content.
-          git -c core.autocrlf=true checkout-index --all --force
+          # Git normalizes text files to LF on Linux; restore .editorconfig's CRLF for formatting checks.
+          $files = @(git ls-files -- '*.cs')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not list tracked C# files.'
+          }
+          $utf8 = [System.Text.UTF8Encoding]::new($false)
+          foreach ($file in $files) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $file
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+            $offset = if ($hasBom) { 3 } else { 0 }
+            $content = $utf8.GetString($bytes, $offset, $bytes.Length - $offset)
+            $content = [System.Text.RegularExpressions.Regex]::Replace($content, "`r?`n", "`r`n")
+            $formattedBytes = $utf8.GetBytes($content)
+            if ($hasBom) {
+              $formattedBytes = [byte[]]@(0xEF, 0xBB, 0xBF) + $formattedBytes
+            }
+            [System.IO.File]::WriteAllBytes($path, $formattedBytes)
+          }
           dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore
       - name: Run all tests
         id: test
