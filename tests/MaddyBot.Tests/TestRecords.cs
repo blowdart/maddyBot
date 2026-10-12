@@ -24,6 +24,7 @@ internal static class TestRecords
     public static BotOptions Options() => new()
     {
         Did = BotDid,
+        NaughtyStepListUri = $"at://{BotDid}/app.bsky.graph.list/listkey",
         ArchiveApiKey = "not-a-real-key",
         CredentialEncryptionKey = Convert.ToBase64String(new byte[32])
     };

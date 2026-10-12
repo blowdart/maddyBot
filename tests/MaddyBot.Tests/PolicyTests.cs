@@ -163,6 +163,39 @@ public sealed class PolicyTests
         Assert.Throws<InvalidOperationException>(options.Validate);
     }
 
+    /// <summary>Persists the existing reply and the source author's list membership as one policy batch.</summary>
+    [Fact]
+    public void MatchingPostCreatesReplyAndListActions()
+    {
+        BotOptions options = TestRecords.Options();
+        IReadOnlyList<BotAction> actions = new MaddyReplyPolicy(options).Create(
+            TestRecords.Event(),
+            TestRecords.Start);
+
+        Assert.Equal(["reply", "list-item"], actions.Select(action => action.ActionKind));
+        BotAction reply = Assert.Single(actions, action => action.ActionKind == "reply");
+        BotAction listItem = Assert.Single(actions, action => action.ActionKind == "list-item");
+        Assert.Equal(reply.SourceUri, listItem.SourceUri);
+        Assert.Equal(reply.SourceSequence, listItem.SourceSequence);
+        Assert.Equal(TestRecords.AuthorDid, listItem.SourceDid);
+
+        using JsonDocument payload = JsonDocument.Parse(listItem.RecordJson);
+        Assert.Equal(options.NaughtyStepListUri, payload.RootElement.GetProperty("list").GetString());
+        Assert.Equal(TestRecords.AuthorDid, payload.RootElement.GetProperty("subject").GetString());
+        Assert.Equal(reply.SourceUri, TestRecords.Post(reply).Reply!.Parent.Uri.ToString());
+    }
+
+    /// <summary>Leaves ignored events without either a reply or a list-membership action.</summary>
+    [Fact]
+    public void IgnoredPostCreatesNoActions()
+    {
+        IReadOnlyList<BotAction> actions = new MaddyReplyPolicy(TestRecords.Options()).Create(
+            TestRecords.Event("unrelated text"),
+            TestRecords.Start);
+
+        Assert.Empty(actions);
+    }
+
     /// <summary>Filters updates, own posts, excluded DIDs, sync assertions, and events before the first-run time.</summary>
     [Fact]
     public void FiltersIneligibleEvents()
@@ -230,6 +263,9 @@ public sealed class PolicyTests
         options.NeverReplyToDids = ["invalid"];
         Assert.Throws<InvalidOperationException>(options.Validate);
         options.NeverReplyToDids = [];
+        options.NaughtyStepListUri = $"at://{TestRecords.AuthorDid}/app.bsky.graph.list/listkey";
+        Assert.Throws<InvalidOperationException>(options.Validate);
+        options.NaughtyStepListUri = $"at://{TestRecords.BotDid}/app.bsky.graph.list/listkey";
         options.DeveloperMode = false;
         Assert.Throws<ArgumentException>(options.Validate);
     }

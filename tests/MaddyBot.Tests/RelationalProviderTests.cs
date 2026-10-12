@@ -38,6 +38,72 @@ public sealed class MySqlDataAttribute : DataAttribute
 /// <summary>Checks identical durability and lease guarantees against SQLite files and isolated MySQL databases.</summary>
 public sealed class RelationalProviderTests
 {
+    /// <summary>Reports durable action states and verifies connectivity without mutating state.</summary>
+    /// <param name="provider">The provider under test.</param>
+    [Theory]
+    [InlineData("Sqlite")]
+    [MySqlData]
+    public async Task ReadsOperationalSnapshot(string provider)
+    {
+        await using Store store = await Store.CreateAsync(provider);
+        IBotDatabaseDiagnostics diagnostics = Assert.IsType<IBotDatabaseDiagnostics>(store.Database, exactMatch: false);
+        await diagnostics.CheckConnectionAsync(CancellationToken.None);
+
+        BotAction source = TestRecords.Work();
+        BotAction pending = source with
+        {
+            ActionKind = "like",
+            ActionKey = "pending",
+            RecordKey = "pending-key"
+        };
+        BotAction rejected = source with
+        {
+            ActionKind = "like",
+            ActionKey = "rejected",
+            RecordKey = "rejected-key"
+        };
+        BotAction simulated = source with
+        {
+            ActionKind = "like",
+            ActionKey = "simulated",
+            RecordKey = "simulated-key"
+        };
+
+        Assert.Equal(4, await store.Database.HandleAsync(
+            11,
+            [source, pending, rejected, simulated],
+            null,
+            CancellationToken.None));
+        Assert.Equal(1, await store.Database.MarkAttemptAsync(source, CancellationToken.None));
+        Assert.Equal(1, await store.Database.FinishAsync(source, "sent", "at://test/sent", "confirmed", CancellationToken.None));
+        Assert.Equal(1, await store.Database.FinishAsync(rejected, "not-sent", null, "rejected", CancellationToken.None));
+        Assert.Equal(1, await store.Database.FinishAsync(simulated, "simulated", null, "simulation", CancellationToken.None));
+
+        BotOperationalSnapshot snapshot = await diagnostics.GetOperationalSnapshotAsync(CancellationToken.None);
+        Assert.Equal(11, snapshot.ProcessedThrough);
+        Assert.Equal(1, snapshot.PendingActions);
+        Assert.Equal(0, snapshot.UncertainActions);
+        Assert.Equal(1, snapshot.SentActions);
+        Assert.Equal(1, snapshot.RejectedActions);
+        Assert.Equal(1, snapshot.SimulatedActions);
+    }
+
+    /// <summary>Checks SQLite connectivity without creating a missing database file.</summary>
+    [Fact]
+    public async Task ReadOnlySqliteConnectionCheckDoesNotCreateDatabase()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"bot-doctor-{Guid.NewGuid():N}.db");
+        SqliteDatabaseProvider database = new(
+            $"Data Source={path}",
+            TestRecords.Options(),
+            TimeProvider.System,
+            NullLogger<SqliteDatabaseProvider>.Instance);
+
+        await Assert.ThrowsAsync<SqliteException>(() =>
+            ((IBotDatabaseDiagnostics)database).CheckConnectionAsync(CancellationToken.None));
+        Assert.False(File.Exists(path));
+    }
+
     /// <summary>Preserves complete replies, JSON, credentials, and progress across provider recreation and safe pruning.</summary>
     /// <param name="provider">The provider under test.</param>
     [Theory]

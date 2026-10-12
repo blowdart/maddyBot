@@ -15,9 +15,9 @@ using idunno.Bluesky.BotSdk;
 namespace MaddyBot;
 
 // This is the main customization point: decide whether a post matches and, if so, build
-// the reply to save. Start with Bot:WatchPhrases and Bot:Replies in appsettings.json;
+// the reply and author-list actions to save. Start with Bot:WatchPhrases and Bot:Replies in appsettings.json;
 // change the marked sections below when configuration alone cannot express your bot's rules.
-// Return null for no reaction, or BotAction for a reply that SenderWorker will send later.
+// Return null for no reaction, or a saved reply. The adapter adds the matching author-list action.
 // Do not publish anything here: the reader must save the work before sending can begin.
 /// <summary>Selects sample-specific matching posts and constructs complete replies without performing remote writes.</summary>
 internal static partial class ReplyPolicy
@@ -45,8 +45,28 @@ internal static partial class ReplyPolicy
     /// <returns>The complete fixed-key reply, or <see langword="null"/> when no reply is needed.</returns>
     /// <exception cref="InvalidDataException">Required v2 event identity or timing is missing.</exception>
     /// <exception cref="JsonException">The source post is malformed.</exception>
-    public static BotAction? Create(JetstreamEvent item, DateTimeOffset startedAt, BotOptions options)
+    public static BotAction? Create(
+        JetstreamEvent item,
+        DateTimeOffset startedAt,
+        BotOptions options) =>
+        Create(item, startedAt, options, out _);
+
+    /// <summary>Creates saved reply intent and returns its source reference for sibling actions.</summary>
+    /// <param name="item">The next sequential replay event.</param>
+    /// <param name="startedAt">The durable first-run eligibility cutoff.</param>
+    /// <param name="options">The sample's exclusions, watch phrases, and reply choices.</param>
+    /// <param name="source">When a reply is returned, contains its source post's URI and CID; otherwise, <see langword="null"/>.</param>
+    /// <returns>The complete fixed-key reply, or <see langword="null"/> when no reply is needed.</returns>
+    /// <exception cref="InvalidDataException">Required v2 event identity or timing is missing.</exception>
+    /// <exception cref="JsonException">The source post is malformed.</exception>
+    internal static BotAction? Create(
+        JetstreamEvent item,
+        DateTimeOffset startedAt,
+        BotOptions options,
+        out StrongReference? source)
     {
+        source = null;
+
         // Updates and sync backfills are not new posts. Eligibility is checked before decoding
         // post content, so excluded authors and irrelevant operations take the cheap path.
         if (item is not JetstreamCommitEvent { IsSyncBackfill: false, Commit.Operation: JetstreamCommitOperation.Create } commit ||
@@ -82,12 +102,12 @@ internal static partial class ReplyPolicy
         }
 
         long sequence = item.Sequence ?? throw new InvalidDataException("A v2 event has no sequence.");
-        AtUri source = new($"at://{commit.Did}/{commit.Commit.Collection}/{commit.Commit.RKey}");
+        AtUri sourceUri = new($"at://{commit.Did}/{commit.Commit.Collection}/{commit.Commit.RKey}");
         Cid cid = commit.Commit.Cid ?? throw new InvalidDataException("Create event has no CID.");
 
         // Parent identifies the exact source version. A reply to a reply keeps the original
         // thread root; using the immediate parent as root would create incorrect thread references.
-        StrongReference parent = new(source, cid);
+        StrongReference parent = new(sourceUri, cid);
 
         // CUSTOMIZE REPLY: build your reaction here, for example deriving text from the source
         // Post instead of choosing from Bot:Replies. We save this complete reply once, so retries
@@ -101,6 +121,8 @@ internal static partial class ReplyPolicy
         // Post records require a TID, not merely a syntactically valid generic record key.
         // Pick random text, createdAt, and a record key once. After the reader commits this work,
         // retries must reuse all three so a lost response can be reconciled at a known URI.
+        source = parent;
+
         return BotActions.Reply(
             parent,
             sequence,
@@ -111,7 +133,7 @@ internal static partial class ReplyPolicy
         (JsonTypeInfo<Post>)BlueskyJsonSerializerOptions.Default.GetTypeInfo(typeof(Post));
 }
 
-/// <summary>Adapts the reply-only sample policy to the SDK's atomic action-batch contract.</summary>
+/// <summary>Adapts the sample's reply and curation-list actions to the SDK's atomic action-batch contract.</summary>
 /// <param name="options">The configured sample matching and reply rules.</param>
 internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
 {
@@ -120,8 +142,23 @@ internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
         JetstreamEvent item,
         DateTimeOffset startedAt)
     {
-        BotAction? reply = ReplyPolicy.Create(item, startedAt, options);
+        BotAction? reply = ReplyPolicy.Create(item, startedAt, options, out StrongReference? source);
 
-        return reply is null ? [] : [reply];
+        if (reply is null)
+        {
+            return [];
+        }
+
+        StrongReference parent = source
+            ?? throw new InvalidOperationException("A saved reply has no source reference.");
+
+        return
+        [
+            reply,
+            BotActions.AddAuthorToList(
+                parent,
+                reply.SourceSequence,
+                new AtUri(options.NaughtyStepListUri))
+        ];
     }
 }

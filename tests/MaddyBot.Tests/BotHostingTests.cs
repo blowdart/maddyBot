@@ -9,6 +9,7 @@ using idunno.Bluesky.BotSdk.DataProviders;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -161,7 +162,9 @@ public sealed class BotHostingTests
         Assert.Same(options, provider.GetRequiredService<idunno.Bluesky.BotSdk.BotOptions>());
         IBotPolicy policy = provider.GetRequiredService<IBotPolicy>();
         Assert.IsType<MaddyReplyPolicy>(policy);
-        Assert.Single(policy.Create(TestRecords.Event(), TestRecords.Start));
+        Assert.Equal(
+            ["reply", "list-item"],
+            policy.Create(TestRecords.Event(), TestRecords.Start).Select(action => action.ActionKind));
         Assert.IsType<PostgreSqlDatabaseProvider>(provider.GetRequiredService<IDatabaseProvider>());
         Assert.Collection(provider.GetServices<IHostedService>(),
             worker => Assert.IsType<OwnershipWorker>(worker),
@@ -215,6 +218,43 @@ public sealed class BotHostingTests
             }
         }
         Assert.Equal(2, endpoints.Length);
+    }
+
+    /// <summary>Renders durable storage metrics as Prometheus text without changing health probe behavior.</summary>
+    [Fact]
+    public async Task MetricsEndpointReturnsPrometheusSnapshot()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"bot-metrics-{Guid.NewGuid():N}.db");
+        SqliteDatabaseProvider database = new(
+            $"Data Source={path}",
+            TestRecords.Options(),
+            TimeProvider.System,
+            NullLogger<SqliteDatabaseProvider>.Instance);
+        await database.InitializeAsync(CancellationToken.None);
+
+        WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            ApplicationName = typeof(BotHostingTests).Assembly.FullName,
+            Args = []
+        });
+        builder.Services.AddSingleton<IDatabaseProvider>(database);
+        await using WebApplication app = builder.Build();
+        app.MapBlueskyBotMetricsEndpoint();
+
+        RouteEndpoint endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>());
+        DefaultHttpContext context = new() { RequestServices = app.Services };
+        await using MemoryStream body = new();
+        context.Response.Body = body;
+        await endpoint.RequestDelegate!(context);
+        body.Position = 0;
+        using StreamReader reader = new(body);
+        string metrics = await reader.ReadToEndAsync();
+
+        Assert.Equal("/metrics", endpoint.RoutePattern.RawText);
+        Assert.Equal("text/plain; version=0.0.4; charset=utf-8", context.Response.ContentType);
+        Assert.Contains("bluesky_bot_processed_through_sequence 0", metrics, StringComparison.Ordinal);
+        Assert.Contains("bluesky_bot_actions{status=\"uncertain\"} 0", metrics, StringComparison.Ordinal);
     }
 
     /// <summary>Provides an application policy that deliberately creates no replies.</summary>

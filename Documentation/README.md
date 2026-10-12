@@ -1,13 +1,12 @@
 # Documentation
 
-- [Sample quick start and operations](../README.md): run MaddyBot safely in
-  developer mode, configure phrases and replies, deliberately enable real
-  actions, and understand recovery, health checks, and deployment.
-- [Bot SDK guide](BotSdk.md): build your own host and policy, select durable
-  storage, use replies, likes, reposts, bookmarks, and author-list membership,
-  or implement a custom action handler.
+- [Build a durable Bluesky bot](BotSdk.md): public-facing SDK guide covering
+  host setup, policy and action design, durable storage, recovery, operations,
+  compatibility, and custom handlers.
+- [MaddyBot sample quick start and operations](https://github.com/blowdart/maddyBot): run the sample
+  safely in developer mode, configure phrases and replies, deliberately enable
+  real actions, and understand its recovery and deployment choices.
 
-Start with the sample quick start if you are new to bots or .NET. The SDK guide
-then explains which parts to change and which reliability safeguards to keep.
-The SDK is currently a project in this repository; it is not yet a published
-NuGet package.
+The SDK guide is structured so its API and operational material can live with
+the idunno.Bluesky documentation. The MaddyBot README remains the source for
+sample-specific setup and deployment instructions.

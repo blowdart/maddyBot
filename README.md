@@ -15,6 +15,9 @@ Its default reply is:
 
 > It's just "Aspire" 🤬
 
+For each eligible matching post, MaddyBot also adds the source author to its
+existing **people on the naughty step** curation list.
+
 The ASP.NET Core host runs a replay reader and a durable-outbox sender. An
 **outbox** is database work saved before attempting a remote action, so a restart
 does not forget it. This sample uses PostgreSQL through Npgsql and parameterized
@@ -37,7 +40,7 @@ diagnostics, and memory-only health endpoints. It does not contain MaddyBot's
 phrase matching, reply text, or tags.
 
 `src\MaddyBot` is the consuming application: its `BotOptions` extends the SDK's
-options with watch phrases and reply choices, `MaddyReplyPolicy` implements
+options with watch phrases, reply choices, and a curation-list URI; `MaddyReplyPolicy` implements
 `IBotPolicy`, and `Program.cs` owns configuration, CLI arguments, HTTP identity,
 and web hosting. Register runtime services with
 `AddBlueskyBot<TPolicy>(options, httpUserAgent, lookbackCutoff)`
@@ -77,7 +80,7 @@ thread references before saving; retries reuse the saved payload and fixed key.
 private bookmarks, and adding the source author to an existing bot-owned curation
 list**. Application-defined actions use `BotActions.Create<TPayload>` and a
 singleton `IBotActionHandler`; see the [guide](Documentation/BotSdk.md).
-MaddyBot remains reply-only by default. Its settings do not select SDK actions.
+MaddyBot creates a reply and list-membership action for each eligible match.
 The SDK project does not maintain a package lock file; the application and test
 projects retain theirs.
 
@@ -99,7 +102,7 @@ The same places are marked with customization comments in the code:
 
 | What you want to change | Where to change it |
 |---|---|
-| Phrases to detect, possible reply texts, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
+| Phrases, reply texts, list destination, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, `Bot:NaughtyStepListUri`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
 | How a post counts as a match | The **CUSTOMIZE DETECTION** block in `src\MaddyBot\ReplyPolicy.cs`, inside `ReplyPolicy.Create()`. `NormalizePhrase()` defines the accepted separators and the `.NET`/`dotnet` alias; change those rules if they do not suit your bot. |
 | How to build a reply after a match, such as choosing text from the source post | The **CUSTOMIZE REPLY** block in `ReplyPolicy.Create()`, where `Post reply` is constructed. This runs before the reply is saved, not on each send attempt. |
 | Add likes, reposts, bookmarks, or author-list membership | Return more `BotAction` intents from the policy. See the adaptation below and the [complete multi-action example](Documentation/BotSdk.md#write-a-policy). No dispatcher changes are needed for built-in actions. |
@@ -118,48 +121,12 @@ creation time and thread references unchanged on retries.
 
 ### Return several actions from the sample
 
-`MaddyReplyPolicy` already implements `IBotPolicy`, but its internal
-`ReplyPolicy.Create()` helper returns a nullable single action. To keep the
-sample's existing matching and eligibility checks while adding a like:
-
-1. Change the helper's return type from `BotAction?` to
-   `IReadOnlyList<BotAction>`. Keep its existing arguments and every filter.
-2. Change every `return null;` in that helper to `return [];`.
-3. Keep construction of `parent` and `reply` in the **CUSTOMIZE REPLY** block,
-   then replace the final single-action return with:
-
-   ```csharp
-   return
-   [
-       BotActions.Reply(
-           parent,
-           sequence,
-           reply),
-       BotActions.Like(
-           parent,
-           sequence)
-   ];
-   ```
-
-4. Replace the adapter method in `MaddyReplyPolicy` with:
-
-   ```csharp
-   public IReadOnlyList<BotAction> Create(
-       JetstreamEvent item,
-       DateTimeOffset startedAt)
-   {
-       return ReplyPolicy.Create(
-           item,
-           startedAt,
-           options);
-   }
-   ```
-
-Do not change only the final return: the helper and adapter must both return
-collections. Removing the `Reply` intent makes this a like-only policy; the
-unchanged sample options still validate `Bot:Replies`, so leave a valid configured
-reply even if unused. For a standalone policy without reply-only settings, copy
-the [SDK example](Documentation/BotSdk.md#write-a-policy) instead.
+`MaddyReplyPolicy.Create()` adapts the sample's nullable reply helper into an
+atomic batch containing the reply and `BotActions.AddAuthorToList(...)`. To add
+another built-in action, append its intent to that returned collection using the
+same source reference and sequence. Keep the existing reply and list intents if
+you want to preserve the sample's behavior. For a standalone policy, see the
+[SDK example](Documentation/BotSdk.md#write-a-policy).
 
 Do not remove the normal-create, post-collection, sync-backfill, self/excluded-DID,
 or witnessed-start-time checks when adapting the sample. Reply roots remain the
@@ -303,8 +270,10 @@ and environment variables (last wins). The project already has a user-secrets ID
 dotnet user-secrets set --project src\MaddyBot "Bot:Did" "did:plc:<your-bot-did>"
 dotnet user-secrets set --project src\MaddyBot "Bot:ArchiveApiKey" "<jetstream-archive-api-key>"
 dotnet user-secrets set --project src\MaddyBot "Bot:DeveloperMode" "true"
+dotnet user-secrets set --project src\MaddyBot "Bot:NaughtyStepListUri" "at://did:plc:<your-bot-did>/app.bsky.graph.list/<list-record-key>"
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = 'http://127.0.0.1:8080'
+dotnet run --project src\MaddyBot --no-launch-profile -- --doctor
 dotnet run --project src\MaddyBot --no-launch-profile
 ```
 
@@ -314,7 +283,11 @@ actual DID. Obtain the archive key from
 [bsky.network](https://bsky.network/account#api-keys-section-heading).
 User secrets are not encrypted; they are for local development, not production.
 `--no-launch-profile` prevents local launch settings from overriding the HTTP
-address above.
+address above. The optional `--doctor` invocation validates the bound
+configuration and checks database connectivity without initializing schema,
+acquiring ownership, or starting workers.
+`Bot:NaughtyStepListUri` must be an existing curation list owned by the
+configured bot account.
 
 **Developer mode is enabled by default.** It needs the database, archive key, and
 bot DID, but does not log in or perform remote actions. It records `simulated`
@@ -365,6 +338,7 @@ through user secrets / environment variables:
 {
   "Bot": {
     "DeveloperMode": true,
+    "NaughtyStepListUri": "at://did:plc:<your-bot-did>/app.bsky.graph.list/<list-record-key>",
     "WatchPhrases": [ ".NET Aspire" ],
     "Replies": [
       "It's just \"Aspire\" \ud83e\udd2c"
@@ -381,6 +355,7 @@ dotnet user-secrets set --project src\MaddyBot "Bot:Replies:0" 'It is just Aspir
 dotnet user-secrets set --project src\MaddyBot "Bot:WatchPhrases:0" '.NET Aspire'
 dotnet user-secrets set --project src\MaddyBot "Bot:Replies:1" 'Please call it Aspire.'
 dotnet user-secrets set --project src\MaddyBot "Bot:NeverReplyToDids:0" "did:plc:7e6kocyzb77xkncplrkoojej"
+dotnet user-secrets set --project src\MaddyBot "Bot:NaughtyStepListUri" "at://did:plc:<your-bot-did>/app.bsky.graph.list/<list-record-key>"
 ```
 
 `Replies` must be nonempty and every entry must be a valid Bluesky post. A reply is
@@ -389,8 +364,9 @@ creation time, and fixed record key are persisted. Changing the array does not
 change pending work or pick a different reply on retry.
 
 `WatchPhrases` must contain at least one nonblank phrase. Matching any phrase
-enqueues one reply, even if several phrases match. Separator normalization is only
-used for matching; original post content and reply text remain unchanged.
+enqueues one reply and one list-membership action, even if several phrases match.
+Separator normalization is only used for matching; original post content and
+reply text remain unchanged.
 Settings apply on restart and do not reprocess already-consumed posts.
 
 The bot never enqueues replies to its own DID or an excluded DID. The sender
@@ -538,7 +514,10 @@ developer-mode simulations, not skipped targets or failed attempts.
 state machines. It returns 503 for failed workers or overdue operations.
 Processing, idle polls, rate waits, standby, and actively progressing dependency
 recovery are healthy. `/health/dependencies` reports recovery dependencies
-separately; do not use it as the restart probe.
+separately; do not use it as the restart probe. `/metrics` provides a separate
+Prometheus text endpoint for durable action counts and the processed-through
+sequence. It queries PostgreSQL on each scrape and is not a health check; restrict
+network access and avoid high-frequency scraping.
 
 Replay reads have a five-minute slice and bounded cancellation/close deadlines.
 Real SDK quota/retry timers extend the slice to their requested deadline plus a
@@ -639,7 +618,8 @@ does not provision them automatically.
 
 Production configuration uses environment variables:
 `Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,
-`Bot__Did`, `Bot__Handle`, and `ConnectionStrings__Bot`.
+`Bot__Did`, `Bot__Handle`, `Bot__NaughtyStepListUri`, and
+`ConnectionStrings__Bot`.
 `Bot__DeveloperMode=false` enables real actions; confirm the intended account and
 policy before setting it. Array entries can use
 `Bot__Replies__0` and `Bot__NeverReplyToDids__0`.

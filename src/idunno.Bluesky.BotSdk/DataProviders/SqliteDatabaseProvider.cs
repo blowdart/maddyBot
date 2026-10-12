@@ -27,7 +27,7 @@ public sealed class SqliteDatabaseProvider(
     string connectionString,
     BotOptions options,
     TimeProvider time,
-    ILogger<SqliteDatabaseProvider> logger) : IDatabaseProvider
+    ILogger<SqliteDatabaseProvider> logger) : IDatabaseProvider, IBotDatabaseDiagnostics
 {
     private readonly string _connectionString = Configure(connectionString);
     private readonly BotOptions _options = options;
@@ -284,6 +284,21 @@ public sealed class SqliteDatabaseProvider(
         await transaction.CommitAsync(cancellationToken);
     }
 
+    /// <inheritdoc/>
+    public async Task CheckConnectionAsync(CancellationToken cancellationToken)
+    {
+        SqliteConnectionStringBuilder builder = new(_connectionString)
+        {
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        };
+        await using SqliteConnection connection = new(builder.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT 1";
+        _ = await command.ExecuteScalarAsync(cancellationToken);
+    }
+
     /// <summary>Supplies repeatable creation statements for the provider's durable tables.</summary>
     /// <returns>The ordered SQL statements that initialize missing tables without deleting saved state.</returns>
     /// <remarks><para>Initialization runs these statements and any table-copy migration in one writer
@@ -393,6 +408,41 @@ public sealed class SqliteDatabaseProvider(
             return state;
         },
             cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<BotOperationalSnapshot> GetOperationalSnapshotAsync(CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using DbCommand command = Command(
+            connection,
+            null,
+            $"""
+            SELECT
+                COALESCE((SELECT processed_through FROM bot_state WHERE id = 1), 0),
+                COALESCE(SUM(status = 'pending'), 0),
+                COALESCE(SUM(status = 'uncertain'), 0),
+                COALESCE(SUM(status IN ('pending', 'uncertain') AND next_retry <= {NowSql}), 0),
+                COALESCE(SUM(status = 'sent'), 0),
+                COALESCE(SUM(status = 'not-sent'), 0),
+                COALESCE(SUM(status = 'simulated'), 0)
+            FROM reply_work
+            """);
+        await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Operational snapshot query returned no row.");
+        }
+
+        return new(
+            reader.GetInt64(0),
+            reader.GetInt64(1),
+            reader.GetInt64(2),
+            reader.GetInt64(3),
+            reader.GetInt64(4),
+            reader.GetInt64(5),
+            reader.GetInt64(6));
+    }
 
     /// <inheritdoc/>
     public Task<int> SaveRequestAsync(SnapshotRequest request, CancellationToken cancellationToken) =>

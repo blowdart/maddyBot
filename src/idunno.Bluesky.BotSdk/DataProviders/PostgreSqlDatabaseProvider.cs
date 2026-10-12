@@ -28,7 +28,7 @@ public sealed class PostgreSqlDatabaseProvider(
     NpgsqlDataSource source,
     BotOptions options,
     TimeProvider time,
-    ILogger<PostgreSqlDatabaseProvider> logger) : IDatabaseProvider
+    ILogger<PostgreSqlDatabaseProvider> logger) : IDatabaseProvider, IBotDatabaseDiagnostics
 {
     /// <inheritdoc/>
     public Guid Owner { get; } = Guid.NewGuid();
@@ -145,6 +145,14 @@ public sealed class PostgreSqlDatabaseProvider(
             transaction);
         await command.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task CheckConnectionAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await source.OpenConnectionAsync(cancellationToken);
+        await using NpgsqlCommand command = new("SELECT 1", connection);
+        _ = await command.ExecuteScalarAsync(cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -292,6 +300,39 @@ public sealed class PostgreSqlDatabaseProvider(
             return state;
         },
             cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<BotOperationalSnapshot> GetOperationalSnapshotAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await source.OpenConnectionAsync(cancellationToken);
+        await using NpgsqlCommand command = new(
+            """
+            SELECT
+                COALESCE((SELECT processed_through FROM bot_state WHERE id), 0),
+                count(*) FILTER (WHERE status = 'pending'),
+                count(*) FILTER (WHERE status = 'uncertain'),
+                count(*) FILTER (WHERE status IN ('pending', 'uncertain') AND next_retry <= now()),
+                count(*) FILTER (WHERE status = 'sent'),
+                count(*) FILTER (WHERE status = 'not-sent'),
+                count(*) FILTER (WHERE status = 'simulated')
+            FROM reply_work
+            """,
+            connection);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Operational snapshot query returned no row.");
+        }
+
+        return new(
+            reader.GetInt64(0),
+            reader.GetInt64(1),
+            reader.GetInt64(2),
+            reader.GetInt64(3),
+            reader.GetInt64(4),
+            reader.GetInt64(5),
+            reader.GetInt64(6));
+    }
 
     /// <inheritdoc/>
     public Task<int> SaveRequestAsync(SnapshotRequest request, CancellationToken cancellationToken) =>
