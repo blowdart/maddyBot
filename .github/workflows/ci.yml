@@ -78,7 +78,10 @@ jobs:
       - name: Build Debug solution
         run: dotnet build MaddyBot.slnx --configuration Debug --no-incremental --no-restore
       - name: Check formatting
-        run: dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore
+        run: |
+          # Match .editorconfig's CRLF working-tree setting while preserving normalized Git content.
+          git -c core.autocrlf=true checkout-index --all --force
+          dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore
       - name: Run all tests
         id: test
         env:
