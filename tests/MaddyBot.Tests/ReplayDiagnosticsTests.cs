@@ -280,7 +280,12 @@ public sealed class ReplayDiagnosticsTests
         ReplayDiagnostics diagnostics = new(time, logger) { ExitReason = "read-slice timeout" };
         using CancellationTokenSource cancellation = new();
         List<string> ordering = [];
-        using CancellationTokenRegistration registration = cancellation.Token.Register(() => ordering.Add("cancel"));
+        TaskCompletionSource<bool> cancellationObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration registration = cancellation.Token.Register(() =>
+        {
+            ordering.Add("cancel");
+            cancellationObserved.TrySetResult(true);
+        });
         TaskCompletionSource<bool> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task cleanup = ReplayCleanup.CloseAsync(cancellation, read.Task, () =>
         {
@@ -289,6 +294,7 @@ public sealed class ReplayDiagnosticsTests
 
             return ValueTask.CompletedTask;
         }, diagnostics, time);
+        await cancellationObserved.Task;
         Assert.Equal(["cancel"], ordering);
         Assert.False(cleanup.IsCompleted);
         time.Advance(TimeSpan.FromMilliseconds(250));
