@@ -427,10 +427,13 @@ internal static class ReplayCleanup
         {
             await enumeration.CancelAsync();
 
-            if (outstandingRead is { IsCompleted: false })
+            if (outstandingRead is not null)
             {
-                diagnostics.Phase = "cleanup awaiting outstanding MoveNextAsync";
-                diagnostics.CleanupStep("awaiting outstanding MoveNextAsync", started);
+                if (!outstandingRead.IsCompleted)
+                {
+                    diagnostics.Phase = "cleanup awaiting outstanding MoveNextAsync";
+                    diagnostics.CleanupStep("awaiting outstanding MoveNextAsync", started);
+                }
 
                 try
                 {
