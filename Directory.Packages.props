@@ -5,8 +5,8 @@
   <ItemGroup>
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.10.94" />
-    <PackageVersion Include="idunno.AtProto" Version="[8.0.0-prerelease.ged793b892b]" />
-    <PackageVersion Include="idunno.Bluesky" Version="[8.0.0-prerelease.ged793b892b]" />
+    <PackageVersion Include="idunno.AtProto" Version="[8.0.0-prerelease.ga282f8f4ca]" />
+    <PackageVersion Include="idunno.Bluesky" Version="[8.0.0-prerelease.ga282f8f4ca]" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="MySqlConnector" Version="2.6.2" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />

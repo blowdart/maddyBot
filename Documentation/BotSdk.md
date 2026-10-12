@@ -16,6 +16,7 @@ reliability contracts described here are the important part.
 - [Understand the flow](#understand-the-flow)
 - [Create your own host](#create-your-own-host)
 - [Choose storage](#choose-storage)
+- [Test the sample](#test-the-sample)
 - [Write a policy](#write-a-policy)
 - [Choose built-in actions](#choose-built-in-actions)
 - [Action identity and recovery](#action-identity-and-recovery)
@@ -218,6 +219,43 @@ Changing DI registration alone is not sufficient.
 Use disposable databases for tests; never point test commands at a running
 bot's database. The MaddyBot repository includes provider setup and isolated
 test helpers for its sample environment.
+
+## Test the sample
+
+The sample's provider-test runner creates temporary PostgreSQL 16 and MySQL 8.4
+containers and isolated SQLite files. It selects Docker by default, falling
+back to WSL containers (`wslc`) when Docker is unavailable. Start a supported
+container host first. Run these commands from the repository root:
+
+```powershell
+.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1
+```
+
+By default, the runner tests relational storage and durable action persistence.
+To run the **full solution test suite** against those disposable databases, use:
+
+```powershell
+.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -AllTests
+```
+
+To require one container host rather than automatic selection, pass
+`-ContainerProvider Docker` or `-ContainerProvider WSL`. The script sets
+`MADDYBOT_TEST_CONNECTION` and `MADDYBOT_TEST_MYSQL_CONNECTION` only for its
+test process, then restores their previous values. It uses separate build and
+test-result directories so it does not replace binaries used by a running bot.
+Containers are removed only after every selected test passes without skips.
+After a failure, the containers and TRX results are retained for diagnosis;
+review the script output for their names and result directory.
+
+The provider integration tests create isolated schemas/databases and may need
+permission to create and drop them. Never point the runner at a development or
+production database. For more detail, see the
+[sample's test instructions](https://github.com/blowdart/maddyBot#tests) and
+the runner's help:
+
+```powershell
+Get-Help .\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -Detailed
+```
 
 You may instead register your own singleton implementation:
 

@@ -1,15 +1,15 @@
 version: 2
 
 registries:
-  idunno-prerelease:
+  blowdart-myget:
     type: nuget-feed
-    url: https://packages.idunno.blue/feed/index.json
+    url: https://www.myget.org/F/blowdart/api/v3/index.json
 
 updates:
   - package-ecosystem: nuget
     directory: /
     registries:
-      - idunno-prerelease
+      - blowdart-myget
     schedule:
       interval: weekly
     cooldown:

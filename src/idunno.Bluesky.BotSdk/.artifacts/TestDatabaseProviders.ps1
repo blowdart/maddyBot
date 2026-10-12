@@ -127,7 +127,7 @@ try {
     Push-Location $repositoryRoot
     try {
         $testSelection = if ($AllTests) { @() } else {
-            @('--filter', 'FullyQualifiedName~MaddyBot.Tests.PostgresTests|FullyQualifiedName~MaddyBot.Tests.RelationalProviderTests|FullyQualifiedName~MaddyBot.Tests.ActionStorageTests')
+            @('--filter', 'FullyQualifiedName~MaddyBot.Tests.RelationalProviderTests|FullyQualifiedName~MaddyBot.Tests.SqliteProviderTests|FullyQualifiedName~MaddyBot.Tests.ActionStorageTests')
         }
         & dotnet test (Join-Path $repositoryRoot 'MaddyBot.slnx') `
             @testSelection `

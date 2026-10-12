@@ -136,8 +136,11 @@ call by hand. Multiple actions can complete at different times, and a terminal
 rejection of one does not roll back actions already completed.
 
 Add examples for your new matching/reply rules in
-`tests\MaddyBot.Tests\PolicyTests.cs`. If you change sending or recovery, extend
-`PostgresTests.cs` and its fake remote tests as well. Changed settings apply on
+`tests\MaddyBot.Tests\PolicyTests.cs`. Shared storage and recovery behavior is
+tested across PostgreSQL, MySQL, and SQLite in
+`tests\MaddyBot.Tests\RelationalProviderTests.cs`; SQLite-only connection rules
+are in `SqliteProviderTests.cs`, and durable action sending/reconciliation cases
+are in `RelationalProviderActionTests.cs`. Changed settings apply on
 restart; they do not rewrite already queued replies or revisit consumed posts.
 Use separate databases for development and production, rather than clearing
 stored progress to test a new rule. The legacy database table name `reply_work`
@@ -156,11 +159,8 @@ dotnet test MaddyBot.slnx --no-build
 
 Package versions are centralized in `Directory.Packages.props`; feed configuration
 and package-source mapping are centralized in `nuget.config`. Both SDK packages are
-pinned to `8.0.0-prerelease.ged793b892b`, corresponding to
-[`ed793b892bf785b244e74a0ba4d00e1a6dc2a61e`](https://github.com/blowdart/idunno.Bluesky/commit/ed793b892bf785b244e74a0ba4d00e1a6dc2a61e),
-which includes validation fixes, configurable replay buffering, and fixed-key
-`Post()` overloads. Sending uses `Post(rKey, savedPost, extractFacets: false)` to
-preserve the durable reply record during retries and reconciliation.
+pinned to `8.0.0-prerelease.ga282f8f4ca`, corresponding to
+[`a282f8f4ca70cfa952c595fc8693979918fe6db5`](https://github.com/blowdart/idunno.Bluesky/commit/a282f8f4ca70cfa952c595fc8693979918fe6db5).
 New replies receive a lexicon-valid TID from `TimestampIdentifier.Next()` before
 enqueue; generic keys such as `maddy-<GUID>` are not valid post record keys.
 Existing queued work keeps its saved key and is never silently re-keyed.
@@ -182,13 +182,11 @@ version includes the Git commit ID. Managed builds in a Git working tree mark
 uncommitted changes `dirty`; the Docker build stamps the supplied commit ID
 without copying Git metadata into its context.
 
-Availability was checked before choosing the reference: nuget.org did not publish
-8.0.0, and the README's MyGet feed did not list the requested prerelease. With
-explicit approval, this repository uses the SDK publisher's
-`https://packages.idunno.blue/feed/index.json`, which contains the exact build.
-It does not silently substitute an older package or track a moving Git branch.
-When upgrading, review replay checkpoint compatibility and the SDK-specific
-generation-mismatch classifier.
+The exact prerelease is available from the public MyGet feed at
+`https://www.myget.org/F/blowdart/api/v3/index.json`; `nuget.config` maps the
+idunno packages to that feed, and Dependabot uses the same source. When upgrading,
+review replay checkpoint compatibility and the SDK-specific generation-mismatch
+classifier.
 
 ### Native AOT
 
@@ -666,7 +664,7 @@ in the workflow are public, disposable CI-only values, not deployment credential
 
 [Dependabot](.github/dependabot.yml) checks NuGet packages, SHA-pinned GitHub
 Actions, and Docker base images weekly and opens update pull requests. The
-NuGet configuration includes the public idunno prerelease feed and groups the
+NuGet configuration includes the public MyGet prerelease feed and groups the
 related idunno SDK packages into one update. Version updates in all three ecosystems have a
 seven-day cooldown after publication, allowing time for newly published malicious
 releases to be detected. This reduces risk but does not guarantee package safety;

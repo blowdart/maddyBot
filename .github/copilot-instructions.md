@@ -102,8 +102,8 @@ that selects the active process during overlapping deployments.
 * Configuration binding is source-generated. Preserve AOT/trimming compatibility;
   do not suppress warnings as a substitute for a correct implementation.
 * Versions are centralized in `Directory.Packages.props`. Verify an exact SDK
-  prerelease exists in the configured publisher feed before updating; do not
-  guess versions or assume a PR commit is published.
+  prerelease exists in the public MyGet feed configured in `nuget.config` before
+  updating; do not guess versions or assume a PR commit is published.
 * Nerdbank.GitVersioning is scoped to the MaddyBot project. Keep its package
   reference out of the reusable SDK project; version and release intent belong
   in the root `version.json` and do not require Git tags.
@@ -155,7 +155,9 @@ When checking line endings locally, use `git ls-files --eol` and
 * Do not add `// Arrange` / `// Act` / `// Assert` comments.
 * Prefer theories for similar cases. Add matching examples to `PolicyTests`,
   stored-format cases to `BotJsonTests`, diagnostics cases to `ReplayDiagnosticsTests`,
-  and durable processing/recovery cases to `PostgresTests`.
+  and shared durable processing/recovery cases to `RelationalProviderTests`.
+  Keep SQLite-only connection rules in `SqliteProviderTests`, and durable action
+  sending/reconciliation cases in `RelationalProviderActionTests`.
 * Before committing code, require a clean non-incremental Debug solution build
   and full test suite, including actual isolated PostgreSQL coverage. Filtered
   tests and incremental builds are iteration tools, not the final commit gate.
