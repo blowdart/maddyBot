@@ -1,38 +1,689 @@
-# New Repo Project
+# maddyBot
 
-The new-repo project is a default template for .NET Foundation projects. It's also probably a fine start for other .NET projects (have at it, but change the license). It contains the correct license, a decent README, and initial project structure (including a standard .gitignore for the Visual Studio family of products).
+A C# 13 / .NET 10 Bluesky bot that watches Jetstream v2 for configurable
+substrings, defaulting to `.NET Aspire`, using `StringComparison.OrdinalIgnoreCase`.
+Runs of ordinary spaces, tabs, ASCII hyphens (`-`), and underscores (`_`) in posts
+and phrases are normalized to one space before matching. `.NET  Aspire`,
+`.NET\tAspire` (with a real tab), `.NET-Aspire`, and `.NET_Aspire` match.
+Periods, exclamation marks, other punctuation, and line breaks remain barriers:
+`.NET. Aspire`, `.NET! Aspire`, and
+`My code is written in .NET. Aspire works for me` do not match `.NET Aspire`.
+The leading dot stays literal; `NET Aspire` does not match.
+`dotnet` and `.NET` are equivalent, case-insensitively, in both posts and watch
+phrases. `dotnet-Aspire` matches the default phrase, but `dotnet. Aspire` does not.
+Its default reply is:
 
-You can learn more about the project from the project [Documentation](Documentation).
+> It's just "Aspire" 🤬
 
-## Using New Repo
+The ASP.NET Core host runs a replay reader and a durable-outbox sender. An
+**outbox** is database work saved before attempting a remote action, so a restart
+does not forget it. This sample uses PostgreSQL through Npgsql and parameterized
+SQL; there is no Entity Framework.
 
-You can simply `git clone` this project to get started. It is recommended that you don't preserve history of the project (it isn't generally meaningful) for your repo, but make a copy and `git init` your project from source.
+**New here?** Follow [Local development](#local-development) for a safe, no-write
+run of the sample, then [Make this sample your own](#make-this-sample-your-own).
+For a step-by-step SDK host, all five built-in actions, and custom actions, see
+the [Bot SDK guide](Documentation/BotSdk.md).
 
-Consult [CHECKLIST.md](CHECKLIST.md) for helpful suggestions on preparing your repo to go public.
+## Bot SDK and sample
 
-## Building
+The SDK is currently referenced as a project and is intended to be distributed
+as a NuGet package in the future.
 
-You don't "build" New Repo, however, this will be meaningful for many other projects.
+`src\idunno.Bluesky.BotSdk` is a reusable watcher-and-action runtime. It owns
+archive/live replay, full checkpoints, durable action work, database access,
+ownership leases, saved authentication, rate accounting, sending/reconciliation,
+diagnostics, and memory-only health endpoints. It does not contain MaddyBot's
+phrase matching, reply text, or tags.
 
-## Contributing
+`src\MaddyBot` is the consuming application: its `BotOptions` extends the SDK's
+options with watch phrases and reply choices, `MaddyReplyPolicy` implements
+`IBotPolicy`, and `Program.cs` owns configuration, CLI arguments, HTTP identity,
+and web hosting. Register runtime services with
+`AddBlueskyBot<TPolicy>(options, httpUserAgent, lookbackCutoff)`
+and map probes with `MapBlueskyBotHealthEndpoints()`.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for information on contributing to this project.
+Choose storage through DI **before** registering the bot runtime. Use
+`AddPostgreSqlBotStorage(connectionString, caCertificate)`,
+`AddMySqlBotStorage(connectionString)`, or `AddSqliteBotStorage(connectionString)`
+from `idunno.Bluesky.BotSdk.DataProviders`. PostgreSQL is the sample application's
+choice, not an SDK default. MySQL requires appropriate server TLS outside local
+development; SQLite requires a persistent local file, not an in-memory database
+or a network filesystem.
 
-This project has adopted the code of conduct defined by the [Contributor Covenant](http://contributor-covenant.org/) 
-to clarify expected behavior in our community. For more information, see the [.NET Foundation Code of Conduct](http://www.dotnetfoundation.org/code-of-conduct).
+Alternatively, bring your own implementation:
+
+```csharp
+services.AddSingleton<IDatabaseProvider, MyDatabaseProvider>();
+services.AddBlueskyBot<MyPolicy>(
+    options,
+    httpUserAgent);
+```
+
+The SDK uses that singleton without replacing it or registering another provider.
+Custom implementations must preserve `IDatabaseProvider`'s documented durability,
+ownership fencing, replay progress, and uncertain-write recovery guarantees.
+`PostgreSqlDatabaseProvider` is public for applications that want to construct it
+directly using their own host-owned `NpgsqlDataSource`.
+
+A policy returns `IReadOnlyList<BotAction>`: `[]` for an ignored event, or one or
+more complete intents built with `BotActions`. The reader persists every action
+in that event's batch atomically with replay progress. The sender then handles
+each action independently; the remote effects are **not** an atomic batch.
+Policies must not perform remote writes. Choose content, creation time, and
+thread references before saving; retries reuse the saved payload and fixed key.
+
+`AddBlueskyBot` automatically registers handlers for **replies, likes, reposts,
+private bookmarks, and adding the source author to an existing bot-owned curation
+list**. Application-defined actions use `BotActions.Create<TPayload>` and a
+singleton `IBotActionHandler`; see the [guide](Documentation/BotSdk.md).
+MaddyBot remains reply-only by default. Its settings do not select SDK actions.
+The SDK project does not maintain a package lock file; the application and test
+projects retain theirs.
+
+## Make this sample your own
+
+For a bot that watches different phrases and posts different replies, start with
+`src\MaddyBot\appsettings.json`: change `Bot:WatchPhrases` to what you want to
+detect and `Bot:Replies` to what you want to say. No C# changes are needed for
+that. Set up your own bot account, secrets and database using the instructions
+below, and keep `Bot:DeveloperMode` enabled while checking the results.
+
+**Also change the HTTP User-Agent** in `src\MaddyBot\Program.cs`: replace
+`httpUserAgent: "maddyBot/1.0"` with your own bot's name and version, for example
+`"MyWatcherBot/1.0"`. This identifies your application to the services it calls;
+it is not the bot account's handle or password.
+
+For changes beyond configured phrases and reply text, use these entry points.
+The same places are marked with customization comments in the code:
+
+| What you want to change | Where to change it |
+|---|---|
+| Phrases to detect, possible reply texts, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
+| How a post counts as a match | The **CUSTOMIZE DETECTION** block in `src\MaddyBot\ReplyPolicy.cs`, inside `ReplyPolicy.Create()`. `NormalizePhrase()` defines the accepted separators and the `.NET`/`dotnet` alias; change those rules if they do not suit your bot. |
+| How to build a reply after a match, such as choosing text from the source post | The **CUSTOMIZE REPLY** block in `ReplyPolicy.Create()`, where `Post reply` is constructed. This runs before the reply is saved, not on each send attempt. |
+| Add likes, reposts, bookmarks, or author-list membership | Return more `BotAction` intents from the policy. See the adaptation below and the [complete multi-action example](Documentation/BotSdk.md#write-a-policy). No dispatcher changes are needed for built-in actions. |
+| Add an application-defined remote action | Implement `IBotActionHandler` and use `BotActions.Create<TPayload>`; see [Custom actions](Documentation/BotSdk.md#custom-actions). `ActionDispatcher.cs`, `BuiltInActionHandlers.cs`, and `BlueskyActionRemote.cs` implement the existing runtime behavior, not sample customization points. |
+| The HTTP application identity | The **CUSTOMIZE HTTP IDENTITY** comment in `src\MaddyBot\Program.cs`, above `httpUserAgent`. |
+
+The basic flow is **Jetstream -> ReaderWorker -> saved actions in a database ->
+SenderWorker -> Bluesky**. `OwnershipWorker` decides which running copy may work.
+Workers depend on the singleton `IDatabaseProvider` chosen by the application
+through DI. PostgreSQL, MySQL, SQLite, and custom implementations share that
+contract without placing provider-specific SQL in the workers.
+`Program.cs` explains how these three workers fit together. Keep detection and
+action construction free of remote writes: the reader must save each intended
+action before the sender attempts it. Keep the saved record key, content,
+creation time and thread references unchanged on retries.
+
+### Return several actions from the sample
+
+`MaddyReplyPolicy` already implements `IBotPolicy`, but its internal
+`ReplyPolicy.Create()` helper returns a nullable single action. To keep the
+sample's existing matching and eligibility checks while adding a like:
+
+1. Change the helper's return type from `BotAction?` to
+   `IReadOnlyList<BotAction>`. Keep its existing arguments and every filter.
+2. Change every `return null;` in that helper to `return [];`.
+3. Keep construction of `parent` and `reply` in the **CUSTOMIZE REPLY** block,
+   then replace the final single-action return with:
+
+   ```csharp
+   return
+   [
+       BotActions.Reply(
+           parent,
+           sequence,
+           reply),
+       BotActions.Like(
+           parent,
+           sequence)
+   ];
+   ```
+
+4. Replace the adapter method in `MaddyReplyPolicy` with:
+
+   ```csharp
+   public IReadOnlyList<BotAction> Create(
+       JetstreamEvent item,
+       DateTimeOffset startedAt)
+   {
+       return ReplyPolicy.Create(
+           item,
+           startedAt,
+           options);
+   }
+   ```
+
+Do not change only the final return: the helper and adapter must both return
+collections. Removing the `Reply` intent makes this a like-only policy; the
+unchanged sample options still validate `Bot:Replies`, so leave a valid configured
+reply even if unused. For a standalone policy without reply-only settings, copy
+the [SDK example](Documentation/BotSdk.md#write-a-policy) instead.
+
+Do not remove the normal-create, post-collection, sync-backfill, self/excluded-DID,
+or witnessed-start-time checks when adapting the sample. Reply roots remain the
+source post's existing `Reply.Root`, or the parent for a top-level post.
+Built-in action recovery is already supplied; do not replace the remote create
+call by hand. Multiple actions can complete at different times, and a terminal
+rejection of one does not roll back actions already completed.
+
+Add examples for your new matching/reply rules in
+`tests\MaddyBot.Tests\PolicyTests.cs`. If you change sending or recovery, extend
+`PostgresTests.cs` and its fake remote tests as well. Changed settings apply on
+restart; they do not rewrite already queued replies or revisit consumed posts.
+Use separate databases for development and production, rather than clearing
+stored progress to test a new rule. The legacy database table name `reply_work`
+is retained for safe migration; its rows now represent versioned actions, not
+only replies.
+
+## Build and packages
+
+Install the .NET 10 SDK and Docker, then:
+
+```powershell
+dotnet restore MaddyBot.slnx --locked-mode
+dotnet build MaddyBot.slnx --no-restore
+dotnet test MaddyBot.slnx --no-build
+```
+
+Package versions are centralized in `Directory.Packages.props`; feed configuration
+and package-source mapping are centralized in `nuget.config`. Both SDK packages are
+pinned to `8.0.0-prerelease.ged793b892b`, corresponding to
+[`ed793b892bf785b244e74a0ba4d00e1a6dc2a61e`](https://github.com/blowdart/idunno.Bluesky/commit/ed793b892bf785b244e74a0ba4d00e1a6dc2a61e),
+which includes validation fixes, configurable replay buffering, and fixed-key
+`Post()` overloads. Sending uses `Post(rKey, savedPost, extractFacets: false)` to
+preserve the durable reply record during retries and reconciliation.
+New replies receive a lexicon-valid TID from `TimestampIdentifier.Next()` before
+enqueue; generic keys such as `maddy-<GUID>` are not valid post record keys.
+Existing queued work keeps its saved key and is never silently re-keyed.
+
+Availability was checked before choosing the reference: nuget.org did not publish
+8.0.0, and the README's MyGet feed did not list the requested prerelease. With
+explicit approval, this repository uses the SDK publisher's
+`https://packages.idunno.blue/feed/index.json`, which contains the exact build.
+It does not silently substitute an older package or track a moving Git branch.
+Lock files include transitive package hashes. When upgrading, review replay
+checkpoint compatibility and the SDK-specific generation-mismatch classifier.
+
+### Native AOT
+
+The application enables `PublishAot` and generated configuration binding. Normal
+`dotnet run`, builds and tests still use .NET; publishing produces a self-contained
+native executable. The Dockerfile builds and runs that executable for **Linux
+x64**, using the native compiler tools in the build stage and a `runtime-deps`
+image rather than an ASP.NET runtime image. No .NET runtime is needed in the
+resulting container. Use Docker's Linux-container mode:
+
+```powershell
+docker build --platform linux/amd64 --tag maddybot:dev .
+```
+
+`BotJsonContext.cs` generates JSON metadata for credentials and health responses.
+`BotJson` in the same file reuses the SDK's generated metadata for posts, replay
+requests and complete checkpoints, including SDK-internal converters. Stored
+property names and probe response shapes are preserved; no database reset is
+needed. Do not switch these calls back to reflection-based serializer overloads.
+When adding stored types or probe responses, add their metadata to the context;
+when adding SDK types, use metadata supplied by the SDK.
+
+Native publish must run on the target operating system with its native toolchain.
+For a different architecture or OS, restore/publish for that runtime identifier,
+update the project's `RuntimeIdentifiers` and lock file deliberately, and validate the resulting executable; do
+not assume the tested Linux-x64 image can run on ARM or Windows. A Windows native
+publish also needs the Visual Studio C++ build tools. AOT/trimming warnings are
+not suppressed by this application.
+
+The project locks both `win-x64` for local Windows development and `linux-x64`
+for the container, so an ordinary locked restore works on either host. The
+native runtime checks performed for this sample target Linux x64; Windows native
+publishing has not been verified.
+
+`.editorconfig`, `.ssh-allowed-signers`, and `.ssh-allowed-signers.md` are copied
+from `blowdart/idunno.Bluesky`. The signers guide explains per-clone verification.
+
+## Local development
+
+The development database uses **PostgreSQL 16**. Match its major version to the
+database offered by your hosting provider. If that version changes, update your
+deployment configuration and
+`src\idunno.Bluesky.BotSdk\.artifacts\create-postgresql.ps1` before recreating or migrating local storage.
+
+```powershell
+$connectionString = .\src\idunno.Bluesky.BotSdk\.artifacts\create-postgresql.ps1 -HostType Docker
+dotnet user-secrets set --project src\MaddyBot "ConnectionStrings:Bot" $connectionString
+```
+
+The script binds port **54329** to loopback only, waits for readiness, and uses the
+named volume `maddybot-postgres16`. It generates a cryptographically random
+256-bit password and outputs the complete connection string, including the password.
+Treat that output as a secret; terminal transcripts may retain it.
+The script refuses existing containers or volumes, because a new generated
+password cannot change the credentials in an existing database.
+`-HostType` is required: choose `Docker` or `WSL` (WSL containers
+through `wslc`, requiring WSL 2.9.3 or later). The selected host must already be
+configured and usable; there is no automatic fallback. Docker uses
+`unless-stopped` restart behavior. WSL containers do not support that option;
+start their retained container manually after restarting the host.
+Use `127.0.0.1` in local connection strings to match the IPv4-only port binding;
+`localhost` can resolve to an unbound IPv6 address.
+`docker stop maddybot-postgres` / `docker start maddybot-postgres` preserve data.
+Use `wslc container stop` / `wslc container start` for WSL containers.
+Container environment inspection can reveal the database password; use only a
+development password on a trusted machine. Never reuse production credentials.
+
+Configuration comes from `appsettings.json`, .NET user secrets in Development,
+and environment variables (last wins). The project already has a user-secrets ID:
+
+```powershell
+dotnet user-secrets set --project src\MaddyBot "Bot:Did" "did:plc:<your-bot-did>"
+dotnet user-secrets set --project src\MaddyBot "Bot:ArchiveApiKey" "<jetstream-archive-api-key>"
+dotnet user-secrets set --project src\MaddyBot "Bot:DeveloperMode" "true"
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:ASPNETCORE_URLS = 'http://127.0.0.1:8080'
+dotnet run --project src\MaddyBot --no-launch-profile
+```
+
+Substitute the complete account DID, not the placeholder. A DID is the account's
+stable `did:plc:...` or `did:web:...` identifier, not its `@handle`; use your bot's
+actual DID. Obtain the archive key from
+[bsky.network](https://bsky.network/account#api-keys-section-heading).
+User secrets are not encrypted; they are for local development, not production.
+`--no-launch-profile` prevents local launch settings from overriding the HTTP
+address above.
+
+**Developer mode is enabled by default.** It needs the database, archive key, and
+bot DID, but does not log in or perform remote actions. It records `simulated`
+outcomes and emits structured simulation logs including the action kind.
+You do not need an app password or credential encryption key for this first run.
+Keep the bot running and create a new matching post from a different account;
+old posts and your bot's own posts are intentionally ignored. Check console
+simulation logs and `http://127.0.0.1:8080/health/live`. The root page counts
+completed actions, including simulations, not real writes alone.
+
+Use **separate databases for developer mode and production**. Service, bot DID,
+and developer mode are bound to durable state; changing them with an existing
+database fails explicitly. A dry run must not silently consume real reply work.
+Never clear production state just to bypass that safety check.
+
+### Deliberately enable real actions
+
+Stop the development run. **Confirm that you want this account to perform the
+actions your policy returns**, check phrases and exclusions, and provision a
+different database for the real run. Change `ConnectionStrings:Bot` to that
+database; do not reuse the developer-mode database.
+
+Create an app password in the bot account's Bluesky settings, not your main
+account password. Configure it and a newly generated credential encryption key:
+
+```powershell
+dotnet user-secrets set --project src\MaddyBot "Bot:Handle" "<bot.handle>"
+dotnet user-secrets set --project src\MaddyBot "Bot:AppPassword" "<bot-app-password>"
+$key = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+dotnet user-secrets set --project src\MaddyBot "Bot:CredentialEncryptionKey" $key
+dotnet user-secrets set --project src\MaddyBot "Bot:DeveloperMode" "false"
+dotnet run --project src\MaddyBot --no-launch-profile
+```
+
+The handle must identify the same account as `Bot:Did`. The archive API key and
+app password are different secrets. Keep the encryption key stable across
+restarts and backed up separately from the database; losing it prevents restoring
+saved refresh credentials. Do not put any of these values in source control,
+screenshots, logs, or shared shell transcripts. Hosted deployments should use
+their platform's secret environment variables, not local user secrets.
+
+### Watch phrases, replies, and exclusions
+
+Set these arrays in `src\MaddyBot\appsettings.json`, or override indexed entries
+through user secrets / environment variables:
+
+```json
+{
+  "Bot": {
+    "DeveloperMode": true,
+    "WatchPhrases": [ ".NET Aspire" ],
+    "Replies": [
+      "It's just \"Aspire\" \ud83e\udd2c"
+    ],
+    "NeverReplyToDids": [
+      "did:plc:7e6kocyzb77xkncplrkoojej"
+    ]
+  }
+}
+```
+
+```powershell
+dotnet user-secrets set --project src\MaddyBot "Bot:Replies:0" 'It is just Aspire.'
+dotnet user-secrets set --project src\MaddyBot "Bot:WatchPhrases:0" '.NET Aspire'
+dotnet user-secrets set --project src\MaddyBot "Bot:Replies:1" 'Please call it Aspire.'
+dotnet user-secrets set --project src\MaddyBot "Bot:NeverReplyToDids:0" "did:plc:7e6kocyzb77xkncplrkoojej"
+```
+
+`Replies` must be nonempty and every entry must be a valid Bluesky post. A reply is
+chosen uniformly at random **once, when enqueueing**, and its complete record,
+creation time, and fixed record key are persisted. Changing the array does not
+change pending work or pick a different reply on retry.
+
+`WatchPhrases` must contain at least one nonblank phrase. Matching any phrase
+enqueues one reply, even if several phrases match. Separator normalization is only
+used for matching; original post content and reply text remain unchanged.
+Settings apply on restart and do not reprocess already-consumed posts.
+
+The bot never enqueues replies to its own DID or an excluded DID. The sender
+checks exclusions again before writing, including already queued work after a
+restart. DIDs are compared ordinally. Settings are read at startup; restart to
+apply changes. A newly excluded DID cannot undo a reply already sent or an
+in-flight request admitted before shutdown.
+
+## Processing and recovery policies
+
+| Policy | Behavior |
+|---|---|
+| First run | Durably record the first owned run's UTC eligibility time before accessing Jetstream. Inspect archive segment metadata to select a positive sequence boundary covering that time; never replay from sequence zero. |
+| Restart | Restore the original service, request bounds/filters, complete `SnapshotCheckpoint`, and application processed-through boundary. |
+| Eligibility | Normal create events only. Ignore updates, sync-backfill assertions, own posts, and excluded DIDs. Use the server's witnessed time for initial eligibility, not an author's untrusted `createdAt`. |
+| Historical work | No age limit or backlog expiry for eligible posts since the recorded start. Downtime can create a large queue. |
+| Malformed data | **Explicitly authorized data loss:** persist an audit entry, log a warning, and skip malformed individual archive records, malformed blocks, and invalid post records. Valid records in an undecodable block can also be lost. Unsafe framing, truncated transport, and other non-skippable SDK errors are not blindly skipped. |
+| Generation mismatch | Re-enumerate from the latest durable checkpoint with the unchanged request, at most five times per process, with cancellable 30-second waits. Other invalid-data errors are not treated as compaction races. |
+| Deleted/restricted targets | Observe source deletes in the reader; reconcile uncertain sends first, then record `not-sent` for deleted targets or server-confirmed reply restrictions. AppView absence alone is retried because indexing can lag. Known target-rejection errors are recorded as terminal outcomes. |
+| Unknown remote outcome | Retain `uncertain` work and use its kind's reconciliation handler before retrying. Replies, likes, and reposts use fixed keys; list membership uses a fixed list/author key. Bookmarks use exhaustive service scans, not a caller-selected remote key. Never generate replacement identities on retry. |
+
+For thread references, the parent is the source URI/CID and the root is its
+existing `Reply.Root`, or the parent for a top-level post. Replies are made by the
+account configured in `Bot:Did` / `Bot:Handle`; a mismatched login fails.
+
+The reader transaction inserts all actions for a matching event and advances the processed-through
+boundary together. Repeated events at or below that boundary are consumed without
+re-enqueueing, so the SDK can still advance its checkpoint. Checkpoint callbacks
+return only after bounded database writes have committed; all earlier emitted
+events have already been durably handled.
+
+Nonmatching events with no durable side effects do not incur a transaction per
+post. Their consumed boundary and complete SDK checkpoint are committed together
+at most once per second. Matching work, deletion handling, and malformed-record
+audits still commit before reading the next event. A crash can replay ignored
+events since the last checkpoint, but cannot lose an enqueued action.
+
+`ReplayAsync()` handles archive-to-live handoff, transient live disconnections,
+expired live cursors, archive quotas, and validated range resumes. Recovery is
+limited by archive availability and compaction: physically deleted historical
+records may no longer be recoverable. Missing initial archive coverage fails
+explicitly rather than inventing a newer starting point.
+
+Terminal action rows and skip audits are retained for seven days by default.
+Action rows are pruned only if the processed-through boundary covers their source
+sequence. Pending/uncertain work is never pruned; rate reservations live for the
+full rolling day. `Bot:CompletedRetentionDays` changes the audit retention.
+
+**Restoring an older database backup or deliberately rewinding needs operator
+reconciliation with the bot's remote repository first.** It can discard known
+record keys and completed receipts; normal durable action deduplication does not
+protect arbitrary rewinds. Action identity is source URI + action kind + stable
+action key. The database and remote services cannot share a transaction; fixed
+keys and reconciliation reduce duplicates but do not promise absolute
+exactly-once delivery, especially for service-managed bookmarks.
+
+### Explicit forward-only catch-up override
+
+Stop the bot, then optionally skip unprocessed history older than a duration:
+
+```powershell
+dotnet run --project src\MaddyBot --no-launch-profile -- --lookback 30m
+```
+
+Durations use whole numbers with `s`, `m`, `h`, or `d`; `0s` selects the invocation
+time. This is an intentional **data-loss override**, not normal recovery.
+If no replay request has been saved, the switch is ignored with an informational
+log and the bot starts normally with first-run eligibility. Otherwise it requires
+a cutoff later than the stored eligibility start.
+It never decreases the processed-through sequence. If processing is already
+beyond the requested boundary, it does not rewind.
+
+Under database ownership it preserves the original filters and upper bound, clears
+the old checkpoint, advances the eligibility cutoff, and records a warning and a
+durable skip audit. Already queued pending/uncertain replies, credentials, and rate
+accounting remain intact. Archive coverage must be available; no cursor is invented.
+The cutoff is fixed when the command is invoked and applied once in that process.
+For recent history, an unfiltered live timestamp-cursor probe on the same host
+obtains a real sequence. Replay begins just before the first returned event so
+that event is not lost; the original replay filters and witnessed-time eligibility
+check still apply. The lookup is bounded to 30 seconds and does not modify saved
+state on failure. If the server explicitly reports `CursorTooOld`, the bot logs
+a warning and selects a conservative archive segment boundary instead, which
+may require reading events older than the cutoff.
+Remove the switch on subsequent starts to resume the new saved state normally.
+`--help` describes the switch without requiring secrets or opening the database.
+
+### Ownership and graceful shutdown
+
+A database **lease** is temporary permission for one process to do work. It
+covers both workers, so overlapping deployments do not both consume and send.
+Every durable operation checks ownership
+transactionally; outbound requests are admitted only with at least 35 seconds of
+lease remaining. Leases last 90 seconds and are checked/renewed every 10 seconds.
+A new owner waits 40 seconds before processing, longer than the 30-second HTTP
+deadline, to drain a previous deployment's bounded requests. Database recovery
+suspends workers and cancels their active operations. No stale owner can enqueue
+or reserve another outbound request. Fixed record keys also protect uncertain
+writes that a server might finish after the client disconnects.
+
+Database connections are pooled with a five-connection limit per instance to
+leave capacity for overlapping deployments on the small development database.
+
+Shutdown cancels replay/sends and allows 45 seconds for cleanup. A send interrupted
+after its attempt was recorded remains uncertain and is reconciled next time.
+The lease is released after worker shutdown, or expires after a crash.
+
+### Rate limits and authentication
+
+All HTTP requests through the long-lived Bluesky agent, including reads,
+identity resolution, retries, session creation, and token refresh, reserve durable
+accounting **before** touching the network. Record creates reserve three write
+points even if they fail or time out. Defaults are conservative:
+
+| Budget | Bot default | Published Bluesky-hosted limit |
+|---|---:|---:|
+| Repository write points/hour | 4,500 | 5,000 |
+| Repository write points/day | 30,000 | 35,000 |
+| PDS requests/five minutes | 2,400 | 3,000 per IP |
+| Session creations/five minutes | 20 | 30 per account |
+| Session creations/day | 200 | 300 per account |
+
+Requests are also paced at least five seconds apart. Server `Retry-After` and
+near-exhausted rate-limit reset headers extend a durable shared cooldown. Budgets,
+cooldowns, and per-item retries survive restarts. Published limits can change,
+and traffic from other applications using the same account/IP must be allowed for.
+Do not use this bot's accounting as a global limiter for unrelated applications.
+
+One agent is kept for the lifetime of the sender. Background refresh is disabled
+so refresh operations are serialized with sending; credentials are refreshed
+before use when needed. `CredentialsUpdatedAsync` persists refreshed credentials
+with AES-256-GCM, bound to the configured DID. Keep the 32-byte encryption key
+outside the database and source control, stable across deployments, and included
+in your secret-recovery plan. Do not change it without deliberately migrating or
+resetting authentication state. Access tokens are not persisted.
+
+## Health and logs
+
+The root route (`/`) returns a UTF-8 plain-text summary from `ActionStatistics`:
+`<count> action(s) completed since <UTC date> 🔥`. The count resets on each process
+start and includes newly confirmed actions (including reconciled writes) or
+developer-mode simulations, not skipped targets or failed attempts.
+
+`/health/live` is a fast, in-memory probe of the ownership, reader, and sender
+state machines. It returns 503 for failed workers or overdue operations.
+Processing, idle polls, rate waits, standby, and actively progressing dependency
+recovery are healthy. `/health/dependencies` reports recovery dependencies
+separately; do not use it as the restart probe.
+
+Replay reads have a five-minute slice and bounded cancellation/close deadlines.
+Real SDK quota/retry timers extend the slice to their requested deadline plus a
+small margin (no SDK wait above one day is accepted). An idle slice reconnects
+from durable progress; it does not jump to “now.” Probes never use time since the
+last reply, and there is no unrelated heartbeat timer.
+
+Actions use .NET **source-generated** `[LoggerMessage]` methods in `BotLog.cs` and
+human-readable console logging with UTC timestamps. Enqueue, simulate, send, reconcile, skip, cooldown, retry,
+authentication, ownership, and fatal outcomes carry structured properties and
+stable event IDs. Secrets and credential objects are not logged.
+
+MaddyBot explicitly enables Information-level logs for
+`idunno.Bluesky.BotSdk.ActionDispatcher` in `appsettings.json`. Outcome logs
+include the action kind, source URI, remote URI when available, and reason.
+MaddyBot still returns only replies unless you change its policy.
+Developer-mode actions are logged as simulations, not actual remote effects.
+
+The reader reports progress on its first consumed event, every 15 seconds while
+consuming, and when moving between "catching up" and "near current time".
+Each report includes the sequence, UTC event witnessed time, event-time lag, and
+interval throughput. "Near current time" means within 30 seconds of the local
+clock; it is not proof of the transport's archive/live phase. Quiet reads report
+the last consumed event and time since receipt every 15 seconds, without claiming
+the socket is connected. These logs do not drive liveness or advance checkpoints.
+
+Each replay enumeration also has a `ReplayEnumerationId` in structured diagnostic
+logs and a console-visible scope shared with the SDK. Its start records the loaded
+SDK assembly/informational version, safe service authority, original filters and
+bounds, and resume progress. Only
+`idunno.AtProto.Jetstream.AtProtoJetstream` is enabled at **Debug** by default;
+other categories keep their existing levels. The configured SimpleConsole sink
+retains scopes and full exceptions, including inner exceptions and stack traces.
+Configuration overrides or replacement sinks must preserve those settings.
+
+Approximately every 30 seconds, a diagnostic summary reports cumulative consumed
+events (including duplicates), relevant events committed (matches, deletion
+effects, or malformed-post audits), interval throughput, in-memory versus durable
+processed boundaries, and the last successfully saved checkpoint's archive/live
+and block positions. It also reports checkpoint successes/failures and monotonic
+count/total/maximum timings for event handling, database work, and checkpoint
+attempts. Handling includes its database work; database timings include checkpoint
+work, so these groups must not be added together. Read waits are separate, include
+the pending read in their total/maximum, and exclude timed database callbacks.
+A long read wait alone does not establish slow consumption. Event-time lag is
+explicitly local UTC minus the last processed event's witnessed timestamp.
+
+Cancellation and cleanup logs distinguish read-slice expiry, host shutdown and
+existing recovery actions, awaiting an outstanding read, enumerator disposal,
+and SDK disposal. Unexpected read failures are logged before cleanup, so a
+secondary cleanup failure does not hide the initiating exception. Failure logs
+retain correlation, phase and known processed/durable progress; propagation and
+the host's `StopHost` policy are unchanged. A final summary is emitted on orderly
+exit when possible, not on hard process termination or native crashes. These
+diagnostics do not change the five-minute slice or alter replay, checkpoint
+persistence or recovery policies.
+
+`Bot:ReplayLiveBufferCapacity` defaults to **8,192 decoded events**, up from the
+SDK default of 1,024. Observed catch-up overflows at 1,024 followed by stable live
+consumption justify trying a larger burst buffer; 8,192 is a starting point,
+not a proven optimum. It is independent of the WebSocket byte buffer and must
+be positive. Increasing it costs memory and cannot fix sustained slow consumption.
+Overflow still drains buffered events and recovers from consumed progress.
+Compare catch-up overflow counts, event-time lag and memory after restarting.
+
+## Docker and hosting
+
+```powershell
+docker build --platform linux/amd64 --tag maddybot:dev .
+```
+
+The image runs as the .NET non-root user on port 8080. Its Docker `HEALTHCHECK`
+uses `/health/live`. **Docker marking a container unhealthy does not automatically
+restart it**; arrange a supervisor when running locally.
+
+The entry point is the Native AOT executable `./MaddyBot`, not `dotnet MaddyBot.dll`.
+Keep its native debug symbols with the matching build when investigating crashes;
+managed exception logs cannot capture hard termination or native faults.
+
+Push the image with an immutable tag to a container registry supported by your
+hosting provider. Configure a long-running container service or worker, rather
+than a job that exits after handling one request. Populate the bot DID/handle and
+secret environment values, and configure your hosting provider's liveness probe
+to use `/health/live` on port 8080. Do not assume the provider honors the image's
+Docker `HEALTHCHECK`; configure restart behavior explicitly.
+
+The optional `.do/app.yaml` file is one provider-specific deployment example,
+not a requirement. Use your hosting provider's deployment configuration and
+database service. Creating these resources may incur charges; the repository
+does not provision them automatically.
+
+Production configuration uses environment variables:
+`Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,
+`Bot__Did`, `Bot__Handle`, and `ConnectionStrings__Bot`.
+`Bot__DeveloperMode=false` enables real actions; confirm the intended account and
+policy before setting it. Array entries can use
+`Bot__Replies__0` and `Bot__NeverReplyToDids__0`.
+
+Use the database connection parameters and CA certificate supplied by your
+hosting provider. Npgsql requires `SSL Mode=VerifyFull` outside Development.
+`Bot__DatabaseCaCertificate` accepts the PEM CA certificate without needing a
+persistent filesystem or embedding it in the image. Never disable certificate
+verification to make deployment work.
+
+Choose a database tier with backups, availability, capacity, and retention
+appropriate for your bot. Verify pricing and support with your hosting provider
+before deployment; a development-tier database does not necessarily offer
+production-grade recovery.
+
+MaddyBot stores durable replay state, queued actions, rate budgets, and encrypted
+refresh credentials in PostgreSQL. Many hosting providers offer only ephemeral
+container filesystems, so do not move that state into local files unless your
+deployment guarantees persistent storage. SQLite is an option for local or
+single-host deployments only when its database file lives on persistent local
+storage.
+
+## Tests
+
+Unit tests do not contact Bluesky. The provider-test runner is located alongside
+the SDK's database creation helpers:
+
+```powershell
+.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1
+```
+
+To run the **full suite**, including non-provider tests, against the runner's
+isolated PostgreSQL, MySQL, and SQLite storage, use:
+
+```powershell
+.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -AllTests
+```
+
+The script chooses the first usable engine in this order: Docker,
+then [WSL containers](https://learn.microsoft.com/en-us/windows/wsl/wsl-container)
+(`wslc`, requiring WSL 2.9.3 or later). It provisions isolated PostgreSQL and
+MySQL databases and SQLite storage for provider coverage. It never uses the
+running bot's database. All selected tests must run and pass, without skips,
+before the container is removed. On failure, the container is retained and the
+script prints inspection and cleanup commands. Results and build output remain
+in the reported temporary directory; running bot binaries are not replaced.
+PostgreSQL, MySQL, and SQLite providers are implemented. See the runner's help
+for supported provider selection and prerequisites:
+
+```powershell
+Get-Help .\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -Detailed
+```
+
+Override automatic selection with `-ContainerProvider Docker` or `WSL`,
+for example `.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -ContainerProvider WSL`.
+An explicitly selected engine must be available; the script does not fall back
+to a different one.
+
+For manual PostgreSQL coverage with a separately provisioned disposable test
+database, set its connection string in the same shell. PostgreSQL integration
+tests create isolated schemas and use fake remote actions:
+
+```powershell
+$env:MADDYBOT_TEST_CONNECTION = 'Host=127.0.0.1;Port=54329;Database=maddybot;Username=maddybot;Password=<development-password>'
+dotnet test MaddyBot.slnx
+```
+
+PostgreSQL integration tests are explicitly skipped when that variable is absent.
+That manual command alone does not supply MySQL coverage; use the isolated
+runner with `-AllTests` for complete provider coverage without skips. Tests
+cover transactional enqueue/progress, complete checkpoint round-trips, replay
+deduplication after pruning, uncertain sends, exclusions, developer mode,
+ownership fencing, durable budgets/cooldowns, and terminal pruning. No test
+authenticates with a real bot account or posts to Bluesky.
 
 ## License
 
-This project is licensed with the [MIT license](LICENSE).
-
-## .NET Foundation
-
-New Repo is a [.NET Foundation project](https://dotnetfoundation.org/projects).
-
-## Related Projects
-
-You should take a look at these related projects:
-
-- [.NET Core](https://github.com/dotnet/core)
-- [ASP.NET](https://github.com/aspnet)
-- [Mono](https://github.com/mono)
+[MIT](LICENSE).

@@ -285,3 +285,10 @@ __pycache__/
 *.btm.cs
 *.odx.cs
 *.xsd.cs
+
+# Local secrets and deployment overrides
+.env
+.env.*
+appsettings.Local.json
+appsettings.Development.json
+*.pem

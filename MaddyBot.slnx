@@ -1,0 +1,38 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".dockerignore" />
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path=".ssh-allowed-signers" />
+    <File Path=".ssh-allowed-signers.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="Dockerfile" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="nuget.config" />
+    <File Path="README.md" />
+    <File Path="THIRD-PARTY-NOTICES" />
+  </Folder>
+  <Folder Name="/.do/">
+    <File Path=".do\app.yaml" />
+  </Folder>
+  <Folder Name="/.github/">
+    <File Path=".github\copilot-instructions.md" />
+  </Folder>
+  <Folder Name="/.github/instructions/">
+    <File Path=".github\instructions\docs.instructions.md" />
+  </Folder>
+  <Folder Name="/Documentation/">
+    <File Path="Documentation\BotSdk.md" />
+    <File Path="Documentation\README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj" />
+    <Project Path="src\MaddyBot\MaddyBot.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests\MaddyBot.Tests\MaddyBot.Tests.csproj" />
+  </Folder>
+</Solution>

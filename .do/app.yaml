@@ -1,0 +1,57 @@
+name: maddybot
+region: nyc
+databases:
+  - name: bot-db
+    engine: PG
+    version: "16"
+    production: false
+workers:
+  - name: bot
+    image:
+      registry_type: DOCR
+      repository: maddybot
+      tag: replace-with-immutable-image-tag
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    liveness_health_check:
+      http_path: /health/live
+      port: 8080
+      initial_delay_seconds: 60
+      period_seconds: 10
+      timeout_seconds: 2
+      success_threshold: 1
+      failure_threshold: 3
+    termination:
+      grace_period_seconds: 60
+    envs:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+        scope: RUN_TIME
+      - key: Bot__DeveloperMode
+        value: "false"
+        scope: RUN_TIME
+      - key: ConnectionStrings__Bot
+        value: "Host=${bot-db.HOSTNAME};Port=${bot-db.PORT};Database=${bot-db.DATABASE};Username=${bot-db.USERNAME};Password=${bot-db.PASSWORD};SSL Mode=VerifyFull"
+        type: SECRET
+        scope: RUN_TIME
+      - key: Bot__DatabaseCaCertificate
+        value: "${bot-db.CA_CERT}"
+        scope: RUN_TIME
+      - key: Bot__Did
+        value: replace-with-bot-did
+        scope: RUN_TIME
+      - key: Bot__Handle
+        value: replace-with-bot-handle
+        scope: RUN_TIME
+      - key: Bot__AppPassword
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: Bot__ArchiveApiKey
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: Bot__CredentialEncryptionKey
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
