@@ -208,8 +208,21 @@ public sealed partial class RelationalProviderTests
             NextBlockIndex = 7,
             NextByteOffset = 123456
         };
-        store.Database.SaveCheckpoint(checkpoint, CancellationToken.None, 5000);
+
+        SnapshotCheckpoint durablyHandledCheckpoint = checkpoint with { LiveAfterSeq = 11 };
+        store.Database.SaveCheckpoint(durablyHandledCheckpoint, CancellationToken.None);
         ReplayState state = await store.Database.LoadStateAsync(CancellationToken.None);
+        Assert.Equal(11, state.ProcessedThrough);
+        Assert.Equal(durablyHandledCheckpoint, JsonSerializer.Deserialize(state.CheckpointJson!, BotJson.SnapshotCheckpoint));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            store.Database.SaveCheckpoint(checkpoint with { LiveAfterSeq = 12 }, CancellationToken.None));
+        state = await store.Database.LoadStateAsync(CancellationToken.None);
+        Assert.Equal(11, state.ProcessedThrough);
+        Assert.Equal(durablyHandledCheckpoint, JsonSerializer.Deserialize(state.CheckpointJson!, BotJson.SnapshotCheckpoint));
+
+        store.Database.SaveCheckpoint(checkpoint, CancellationToken.None, 5000);
+        state = await store.Database.LoadStateAsync(CancellationToken.None);
         Assert.Equal(checkpoint, JsonSerializer.Deserialize(state.CheckpointJson!, BotJson.SnapshotCheckpoint));
         Assert.Throws<InvalidOperationException>(() =>
             store.Database.SaveCheckpoint(checkpoint with { LiveAfterSeq = 6000 }, CancellationToken.None, 5500));

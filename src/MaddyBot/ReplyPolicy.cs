@@ -15,9 +15,9 @@ using idunno.Bluesky.BotSdk;
 namespace MaddyBot;
 
 // This is the main customization point: decide whether a post matches and, if so, build
-// the reply and author-list actions to save. Start with Bot:WatchPhrases and Bot:Replies in appsettings.json;
+// the reply to save. Start with Bot:WatchPhrases and Bot:Replies in appsettings.json;
 // change the marked sections below when configuration alone cannot express your bot's rules.
-// Return null for no reaction, or a saved reply. The adapter adds the matching author-list action.
+// Return null for no reaction, or the complete saved reply.
 // Do not publish anything here: the reader must save the work before sending can begin.
 /// <summary>Selects sample-specific matching posts and constructs complete replies without performing remote writes.</summary>
 internal static partial class ReplyPolicy
@@ -133,7 +133,7 @@ internal static partial class ReplyPolicy
         (JsonTypeInfo<Post>)BlueskyJsonSerializerOptions.Default.GetTypeInfo(typeof(Post));
 }
 
-/// <summary>Adapts the sample's reply and curation-list actions to the SDK's atomic action-batch contract.</summary>
+/// <summary>Adapts the sample's reply to the SDK's atomic action-batch contract.</summary>
 /// <param name="options">The configured sample matching and reply rules.</param>
 internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
 {
@@ -142,23 +142,8 @@ internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
         JetstreamEvent item,
         DateTimeOffset startedAt)
     {
-        BotAction? reply = ReplyPolicy.Create(item, startedAt, options, out StrongReference? source);
+        BotAction? reply = ReplyPolicy.Create(item, startedAt, options);
 
-        if (reply is null)
-        {
-            return [];
-        }
-
-        StrongReference parent = source
-            ?? throw new InvalidOperationException("A saved reply has no source reference.");
-
-        return
-        [
-            reply,
-            BotActions.AddAuthorToList(
-                parent,
-                reply.SourceSequence,
-                new AtUri(options.NaughtyStepListUri))
-        ];
+        return reply is null ? [] : [reply];
     }
 }

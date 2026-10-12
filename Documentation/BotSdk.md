@@ -55,9 +55,8 @@ They are different credentials. Never put secrets in checked-in configuration.
 secret storage**.
 
 For phrase-and-reply customization, the sample README is the relevant guide. To
-keep MaddyBot's matching but add actions, follow
-[Return several actions from the sample](https://github.com/blowdart/maddyBot#return-several-actions-from-the-sample).
-For a separate bot, continue below.
+keep the sample reply-only while learning how to create a separate multi-action
+bot, continue below.
 
 ## Understand the flow
 
