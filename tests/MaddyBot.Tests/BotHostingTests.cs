@@ -257,6 +257,8 @@ public sealed class BotHostingTests
             Assert.Equal("text/plain; version=0.0.4; charset=utf-8", context.Response.ContentType);
             Assert.Contains("bluesky_bot_processed_through_sequence 0", metrics, StringComparison.Ordinal);
             Assert.Contains("bluesky_bot_actions{status=\"uncertain\"} 0", metrics, StringComparison.Ordinal);
+            Assert.Contains("bluesky_bot_retry_due_actions 0", metrics, StringComparison.Ordinal);
+            Assert.DoesNotContain("bluesky_bot_actions{status=\"retry_due\"}", metrics, StringComparison.Ordinal);
         }
         finally
         {

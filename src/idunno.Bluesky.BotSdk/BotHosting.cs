@@ -150,10 +150,13 @@ public static class BotHosting
                 content.AppendLine("# TYPE bluesky_bot_actions gauge");
                 AppendMetric(content, "pending", snapshot.PendingActions);
                 AppendMetric(content, "uncertain", snapshot.UncertainActions);
-                AppendMetric(content, "retry_due", snapshot.RetryDueActions);
                 AppendMetric(content, "sent", snapshot.SentActions);
                 AppendMetric(content, "not_sent", snapshot.RejectedActions);
                 AppendMetric(content, "simulated", snapshot.SimulatedActions);
+                content.AppendLine("# HELP bluesky_bot_retry_due_actions Pending or uncertain actions whose saved retry time has arrived.");
+                content.AppendLine("# TYPE bluesky_bot_retry_due_actions gauge");
+                content.Append("bluesky_bot_retry_due_actions ")
+                    .AppendLine(snapshot.RetryDueActions.ToString(CultureInfo.InvariantCulture));
 
                 await Results.Text(
                     content.ToString(),

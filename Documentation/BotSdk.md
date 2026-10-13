@@ -698,8 +698,10 @@ rest of the stored data.
 - **Scrape durable state separately.** `MapBlueskyBotMetricsEndpoint()` exposes
   `/metrics` in Prometheus text format. It queries the database when scraped and
   reports `bluesky_bot_processed_through_sequence` (a Jetstream sequence, not a
-  timestamp or event count) and `bluesky_bot_actions` gauges for pending,
-  uncertain, retry-due, sent, not-sent, and simulated rows. Terminal counts
+  timestamp or event count), `bluesky_bot_actions` gauges for pending,
+  uncertain, sent, not-sent, and simulated rows, and a separate
+  `bluesky_bot_retry_due_actions` gauge. Retry-due actions are a subset of
+  pending and uncertain work, not an additional action status. Terminal counts
   include rows still within retention. Use it for queue/reconciliation
   monitoring, not readiness or liveness; restrict network access and avoid
   high-frequency scraping.
