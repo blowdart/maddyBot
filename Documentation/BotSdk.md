@@ -1,47 +1,51 @@
-# Build your own Bluesky bot
+# Build a durable Bluesky bot
 
 This guide takes you from a safe local run to a policy that can reply, like,
 repost, bookmark, or add a post's author to a list. You do not need to write
 database SQL or remote-retry code for those five actions.
 
-The SDK is the reusable runtime in `src\idunno.Bluesky.BotSdk`. MaddyBot is a
-small consuming application in `src\MaddyBot`: it watches configured phrases
-and **only replies by default**. The SDK is currently referenced as a project;
-there is no published Bot SDK NuGet package to install yet.
+The Bluesky Bot SDK is the reusable watcher-and-action runtime. [MaddyBot](https://github.com/blowdart/maddyBot)
+is a small sample application built on it; that sample watches configured
+phrases and **only replies by default**. The SDK source and distribution method
+may change as it is incorporated into the idunno.Bluesky project; the APIs and
+reliability contracts described here are the important part.
 
 ## Contents
 
-- [Start with the sample](#start-with-the-sample)
+- [Start with the MaddyBot sample](#start-with-the-maddybot-sample)
 - [Understand the flow](#understand-the-flow)
 - [Create your own host](#create-your-own-host)
 - [Choose storage](#choose-storage)
+- [Test the sample](#test-the-sample)
 - [Write a policy](#write-a-policy)
 - [Choose built-in actions](#choose-built-in-actions)
 - [Action identity and recovery](#action-identity-and-recovery)
 - [Custom actions](#custom-actions)
 - [Operate safely](#operate-safely)
+- [Compatibility and support boundaries](#compatibility-and-support-boundaries)
 - [Troubleshooting](#troubleshooting)
 
-## Start with the sample
+## Start with the MaddyBot sample
 
-1. Install the .NET 10 SDK selected by `global.json` and a usable Docker
+1. Install the .NET SDK required by the sample and a usable Docker
    Linux-container engine, or the WSL container setup described in the
-   [local-development instructions](../README.md#local-development).
+   [sample's local-development instructions](https://github.com/blowdart/maddyBot#local-development).
 2. Use a dedicated Bluesky bot account. Find its actual DID (stable account
    identifier), not its `@handle`, and obtain a Jetstream archive API key from
    [bsky.network](https://bsky.network/account#api-keys-section-heading).
-3. Follow the README to create a **development** PostgreSQL database, save its
-   connection string and the DID/archive key in user secrets, and run MaddyBot.
+3. Follow the sample's setup guide to create a **development** PostgreSQL
+   database, save its connection string and the DID/archive key in user secrets,
+   and run MaddyBot.
    Leave `Bot:DeveloperMode=true`. This mode reads and saves simulated work but
    does not log in or perform remote actions. No app password is needed.
-4. Change `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in
-   `src\MaddyBot\appsettings.json`. Also change `httpUserAgent: "maddyBot/1.0"`
-   in `Program.cs` to your bot's name/version.
+4. Change the sample's `Bot:WatchPhrases`, `Bot:Replies`, and
+   `Bot:NeverReplyToDids` settings. Also change its HTTP User-Agent to your
+   bot's name and version.
 5. From another account, create a **new** post containing a configured phrase.
    Check the simulation logs and `/health/live`. Old posts, self-authored posts,
    excluded authors, updates, and sync backfills are intentionally ignored.
 6. Only after checking the behavior, follow
-   [Deliberately enable real actions](../README.md#deliberately-enable-real-actions).
+   the sample's instructions to [deliberately enable real actions](https://github.com/blowdart/maddyBot#deliberately-enable-real-actions).
    Confirm the account and intended actions, use a separate database, set an app
    password and a stable credential encryption key, then disable developer mode.
 
@@ -50,10 +54,9 @@ They are different credentials. Never put secrets in checked-in configuration.
 .NET user secrets are local development storage, **not encrypted production
 secret storage**.
 
-For phrase-and-reply customization, you can stop here. To keep MaddyBot's matching
-but add actions, follow
-[Return several actions from the sample](../README.md#return-several-actions-from-the-sample).
-For a separate bot, continue below.
+For phrase-and-reply customization, the sample README is the relevant guide. To
+keep the sample reply-only while learning how to create a separate multi-action
+bot, continue below.
 
 ## Understand the flow
 
@@ -83,24 +86,21 @@ to replies. Do not rename tables or clear progress when changing policy.
 
 ## Create your own host
 
-The easiest starting point is the sample. If you want a separate minimal web
-host, create it **inside this repository** so it inherits the package/feed and
-build conventions. Run these commands from the repository root:
+If you want a separate minimal web host, create it in your application's
+solution:
 
 ```powershell
-dotnet new web --name MyBot --output src\MyBot --framework net10.0
-dotnet add src\MyBot\MyBot.csproj reference src\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj
-dotnet user-secrets init --project src\MyBot
+dotnet new web --name MyBot --framework net10.0
+dotnet user-secrets init --project MyBot
 ```
 
-Use C# 13, not preview features. If you move the application to another repository,
-also carry over the required package source configuration; a project reference
-to this SDK needs access to its exact dependencies. Do not guess a future NuGet
-package name or version.
+Use the SDK's installation instructions for the version and distribution method
+you are consuming. In this source snapshot, MaddyBot references the SDK as a
+project; it is not yet a separately published NuGet package. Use C# 13, not
+preview language features, when building against this source snapshot.
 
 Replace the generated `Program.cs` with the host below and add the `MyPolicy.cs`
-example in [Write a policy](#write-a-policy). The host deliberately uses the
-same PostgreSQL setup as MaddyBot:
+example in [Write a policy](#write-a-policy). This example uses PostgreSQL:
 
 ```csharp
 using System.Text;
@@ -143,34 +143,35 @@ app.MapGet("/", (ActionStatistics statistics) =>
         contentEncoding: Encoding.UTF8));
 
 app.MapBlueskyBotHealthEndpoints();
+app.MapBlueskyBotMetricsEndpoint();
 
 await app.RunAsync();
 ```
 
-`AddBlueskyBot<TPolicy>` registers the policy, the three workers, authentication,
+`AddBlueskyBot<TPolicy>` registers the policy, ownership and (by default) the
+reader and sender workers, authentication,
 rate accounting, and all five built-in handlers. It registers the supplied
 `BotOptions` for policy injection. Do not register a second set of workers.
 Storage must be registered **first**. `httpUserAgent` identifies the application,
 not the account; replace `"MyBot/1.0"` with your own identity.
-
-To run this new host safely, save settings to **its** user-secrets project:
+To run this new host safely, save settings to **its** user-secrets project.
+Supply a PostgreSQL connection string through `ConnectionStrings:Bot` and the
+required identity/archive values:
 
 ```powershell
-$connectionString = .\src\idunno.Bluesky.BotSdk\.artifacts\create-postgresql.ps1 -HostType Docker
-dotnet user-secrets set --project src\MyBot "ConnectionStrings:Bot" $connectionString
-dotnet user-secrets set --project src\MyBot "Bot:Did" "did:plc:<your-bot-did>"
-dotnet user-secrets set --project src\MyBot "Bot:ArchiveApiKey" "<jetstream-archive-api-key>"
-dotnet user-secrets set --project src\MyBot "Bot:DeveloperMode" "true"
+$connectionString = "<development-postgresql-connection-string>"
+dotnet user-secrets set --project MyBot "ConnectionStrings:Bot" $connectionString
+dotnet user-secrets set --project MyBot "Bot:Did" "did:plc:<your-bot-did>"
+dotnet user-secrets set --project MyBot "Bot:ArchiveApiKey" "<jetstream-archive-api-key>"
+dotnet user-secrets set --project MyBot "Bot:DeveloperMode" "true"
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = 'http://127.0.0.1:8080'
-dotnet run --project src\MyBot --no-launch-profile
+dotnet run --project MyBot --no-launch-profile
 ```
 
 Replace placeholders with actual values; the DID must parse as a valid DID.
-The database helper refuses existing containers/volumes, so do not run it again
-to obtain an existing database's password. Use a distinct development database
-for a distinct bot, and keep the original secret connection string securely.
-For WSL, use `-HostType WSL` with a configured WSL container engine.
+Use a distinct development database for a distinct bot, and keep its connection
+string securely. Do not use a production database for this simulation.
 
 `BotOptions` supplies conservative defaults for omitted runtime settings.
 This example uses a constant match phrase in its policy, not MaddyBot's
@@ -214,24 +215,45 @@ hardens **PostgreSQL** connection strings. Read your provider's
 `ConnectionStrings:Bot` value instead and apply that provider's secure settings.
 Changing DI registration alone is not sufficient.
 
-Database creation and test helpers are under:
+Use disposable databases for tests; never point test commands at a running
+bot's database. The MaddyBot repository includes provider setup and isolated
+test helpers for its sample environment.
 
-```text
-src\idunno.Bluesky.BotSdk\.artifacts\create-postgresql.ps1
-src\idunno.Bluesky.BotSdk\.artifacts\create-mysql.ps1
-src\idunno.Bluesky.BotSdk\.artifacts\create-sqlite.ps1
-src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1
+## Test the sample
+
+The sample's provider-test runner creates temporary PostgreSQL 16 and MySQL 8.4
+containers and isolated SQLite files. It selects Docker by default, falling
+back to WSL containers (`wslc`) when Docker is unavailable. Start a supported
+container host first. Run these commands from the repository root:
+
+```powershell
+.\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1
 ```
 
-Use `Get-Help <script-path> -Detailed` to check each helper's parameters before
-running it. Use disposable databases for tests; never point test commands at
-your running bot's database.
-
-For the complete suite, including all three isolated storage providers and
-non-provider tests, run from the repository root:
+By default, the runner tests relational storage and durable action persistence.
+To run the **full solution test suite** against those disposable databases, use:
 
 ```powershell
 .\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -AllTests
+```
+
+To require one container host rather than automatic selection, pass
+`-ContainerProvider Docker` or `-ContainerProvider WSL`. The script sets
+`MADDYBOT_TEST_CONNECTION` and `MADDYBOT_TEST_MYSQL_CONNECTION` only for its
+test process, then restores their previous values. It uses separate build and
+test-result directories so it does not replace binaries used by a running bot.
+Containers are removed only after every selected test passes without skips.
+After a failure, the containers and TRX results are retained for diagnosis;
+review the script output for their names and result directory.
+
+The provider integration tests create isolated schemas/databases and may need
+permission to create and drop them. Never point the runner at a development or
+production database. For more detail, see the
+[sample's test instructions](https://github.com/blowdart/maddyBot#tests) and
+the runner's help:
+
+```powershell
+Get-Help .\src\idunno.Bluesky.BotSdk\.artifacts\TestDatabaseProviders.ps1 -Detailed
 ```
 
 You may instead register your own singleton implementation:
@@ -248,10 +270,9 @@ registered singleton without replacing it. A custom provider must implement the
 interface's complete contract: transactional batch/progress persistence, full
 checkpoints and original request configuration, source/action identity
 uniqueness, ownership fencing, uncertain-work recovery, credentials, rate
-budgets, and safe pruning. It is not just a queue implementation.
-
-DigitalOcean App Platform has ephemeral local files. Keep the README deployment
-on PostgreSQL; do **not** replace it with a SQLite file in the image.
+budgets, and safe pruning. It is not just a queue implementation. To enable the
+sample's `--doctor` connection check and `/metrics` endpoint, also implement the
+optional `IBotDatabaseDiagnostics` interface.
 
 ## Write a policy
 
@@ -590,29 +611,68 @@ Use explicitly generated `JsonTypeInfo<TPayload>` as shown. Do not switch to
 reflection-based serialization or suppress AOT/trimming warnings. Test payload
 compatibility and lost-response recovery before using the handler in real mode.
 
+### Test a custom handler
+
+Keep handler tests offline and deterministic. Inject an application-owned
+client/service interface, then use a fake implementation that records calls,
+can return an existing effect, and can simulate a timeout after accepting a
+request. Cover these cases before enabling real writes:
+
+- A payload built with version `N` validates and round-trips using its generated
+  metadata; an unsupported version fails clearly and leaves queued work intact.
+- An existing remote effect is reconciled as success without another write.
+- Confirmed absence permits one execution using the **same** saved payload and
+  idempotency identity.
+- A timeout after the fake service accepts the request leaves the action
+  uncertain; a second dispatch finds the accepted effect and does not send a
+  second request.
+- Reconciliation failures and cancellation propagate; they are never treated as
+  proof that the remote effect is absent.
+
+Use the runtime's `ActionDispatcher` and an in-memory fake for unit tests. Add
+database-provider tests only for persistence semantics, and use disposable
+databases for integration tests. Do not use a live Bluesky account or external
+service to test retry behavior.
+
 ## Operate safely
 
-For the separate `src\MyBot` host, stop the developer run first. After explicitly
+For your host, stop the developer run first. After explicitly
 confirming the account and policy, provision a **different** real-mode database
 and use its connection string below. Do not reuse the earlier development
 connection string or change the mode of its durable state:
 
 ```powershell
-dotnet user-secrets set --project src\MyBot "ConnectionStrings:Bot" "<separate-real-mode-database-connection-string>"
-dotnet user-secrets set --project src\MyBot "Bot:Handle" "<bot.handle>"
-dotnet user-secrets set --project src\MyBot "Bot:AppPassword" "<bot-app-password>"
+dotnet user-secrets set --project MyBot "ConnectionStrings:Bot" "<separate-real-mode-database-connection-string>"
+dotnet user-secrets set --project MyBot "Bot:Handle" "<bot.handle>"
+dotnet user-secrets set --project MyBot "Bot:AppPassword" "<bot-app-password>"
 $key = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-dotnet user-secrets set --project src\MyBot "Bot:CredentialEncryptionKey" $key
-dotnet user-secrets set --project src\MyBot "Bot:DeveloperMode" "false"
-dotnet run --project src\MyBot --no-launch-profile
+dotnet user-secrets set --project MyBot "Bot:CredentialEncryptionKey" $key
+dotnet user-secrets set --project MyBot "Bot:DeveloperMode" "false"
+dotnet run --project MyBot --no-launch-profile
 ```
 
 Use the bot account's app password, not its main password. Generate this key
 once for the new real-mode database, then retain it for future restarts; do not
 rerun the key-generation line on every launch. The DID/archive key and local
 environment settings from the earlier setup still apply. For MaddyBot, use
-the [sample's real-mode commands](../README.md#deliberately-enable-real-actions)
+the [sample's real-mode commands](https://github.com/blowdart/maddyBot#deliberately-enable-real-actions)
 instead.
+
+`Bot:CredentialEncryptionKey` is a base64-encoded, randomly generated
+32-byte (256-bit) key used only to encrypt the bot's saved Bluesky refresh
+credential before it is stored in the database. The refresh credential lets the
+bot renew its login after the short-lived access token expires, without creating
+a new session with the app password on every restart. The encrypted database
+value contains the refresh token and the HTTPS service address; it does not
+contain the app password or access token. The key does **not** encrypt the
+database, queued actions, replay state, or other secrets.
+
+Keep this key secret, stable, and backed up separately from the database. The
+bot needs the same key to restore its saved session after a restart. If the key
+is lost or changed, previously saved refresh credentials cannot be decrypted;
+the bot may need to create a new session using its app password. Protect
+database backups too: encryption of this one credential does not protect the
+rest of the stored data.
 
 - **Developer mode first.** Simulations count as completed actions in
   `ActionStatistics`; they are not proof of remote effects or permissions.
@@ -625,15 +685,31 @@ instead.
   `Bot:DeveloperMode=false`. In hosted environments the corresponding names are
   `Bot__Handle`, `Bot__AppPassword`, `Bot__CredentialEncryptionKey`, and
   `Bot__DeveloperMode`.
-- **Keep secrets recoverable and private.** Refresh credentials are encrypted
-  in the database. Back up the encryption key separately and keep it unchanged
-  across deployments. Never log credentials or secret connection strings.
+- **Keep secrets recoverable and private.** The key encrypts only the saved
+  refresh credential, not the database or other bot state. Back it up separately
+  and keep it unchanged across deployments. Never log credentials or secret
+  connection strings.
 - **Observe action outcomes.** `ActionDispatcher` logs carry the action kind,
   source URI, remote URI when available, and outcome reason. Completed-action
   counts include confirmed reconciliations and simulations, not failed attempts
   or terminal rejections.
 - **Probe workers, not the last reply.** Map `/health/live` as the restart probe
   and inspect `/health/dependencies` separately for dependency recovery.
+- **Scrape durable state separately.** `MapBlueskyBotMetricsEndpoint()` exposes
+  `/metrics` in Prometheus text format. It queries the database when scraped and
+  reports `bluesky_bot_processed_through_sequence` (a Jetstream sequence, not a
+  timestamp or event count), `bluesky_bot_actions` gauges for pending,
+  uncertain, sent, not-sent, and simulated rows, and a separate
+  `bluesky_bot_retry_due_actions` gauge. Retry-due actions are a subset of
+  pending and uncertain work, not an additional action status. Terminal counts
+  include rows still within retention. Use it for queue/reconciliation
+  monitoring, not readiness or liveness; restrict network access and avoid
+  high-frequency scraping.
+- **Diagnose without starting the bot.** The MaddyBot sample provides
+  `--doctor`, which validates its configuration and checks database connectivity
+  without initializing schema or starting workers. The generic SDK does not
+  impose a command-line interface. See the
+  [sample's CLI and local setup](https://github.com/blowdart/maddyBot#local-development).
 - **Leave recovery intact.** Resume complete checkpoints and original filters.
   Replay can repeat events; the runtime's processed boundary and action
   identities suppress already handled work. Archive availability/compaction
@@ -645,14 +721,35 @@ instead.
   add the sample's CLI.
 - **Test without real writes.** Add policy cases and fake-remote recovery cases.
   Run database coverage against disposable databases, not a running user's
-  schema. See the [test instructions](../README.md#tests).
+  schema. See the
+  [sample's test instructions](https://github.com/blowdart/maddyBot#tests).
 
-For Native AOT, use the sample's generated binding/JSON patterns and validate
-your intended native target. The tested Docker deployment is Linux x64; a
-managed development run does not establish native compatibility on every OS.
+## Compatibility and support boundaries
+
+| Area | Included capability | Important limit |
+|---|---|---|
+| Built-in actions | Replies, likes, reposts, private bookmarks, and adding an author to an existing bot-owned curation list | MaddyBot intentionally selects replies only. |
+| Custom actions | Singleton, versioned `IBotActionHandler` implementations with saved JSON payloads | Keep handlers for every payload version that may still be queued. |
+| Durable storage | PostgreSQL, MySQL, and file-backed SQLite providers | SQLite is for persistent local/single-host storage, not ephemeral containers or network filesystems. |
+| Health and metrics | Memory-only liveness/dependency probes and an optional database-backed Prometheus metrics endpoint | Custom providers need `IBotDatabaseDiagnostics` to support doctor and metrics; scraping performs a database read and is not a health check. |
+| Delivery recovery | Stable identities, saved payloads, retry scheduling, and handler reconciliation | The database and remote PDS cannot share a transaction; exactly-once delivery is not guaranteed. Archive availability and compaction bound replay recovery. |
+
+The SDK is designed for Native AOT and trimming, but the application host must
+preserve source-generated JSON and configuration-binding patterns. Validate
+publish for every runtime identifier you deploy; a managed development run or
+one container build does not establish native compatibility on other operating
+systems or architectures. The sample's supported runtime targets are documented
+in the [MaddyBot repository](https://github.com/blowdart/maddyBot).
+
 If enabling AOT analyzers without setting `PublishAot`, also enable the request
 delegate generator (`EnableRequestDelegateGenerator`) for the host's `MapGet`
 delegate; do not suppress trimming or dynamic-code warnings.
+
+Custom `IDatabaseProvider` implementations may also implement
+`IBotDatabaseDiagnostics` to enable the read-only doctor check and durable-state
+metrics. The core storage contract does not require this optional diagnostics
+interface. If it is not implemented, the metrics endpoint responds with
+`501 Not Implemented` rather than returning empty or misleading metrics.
 
 ## Troubleshooting
 
@@ -665,9 +762,10 @@ delegate; do not suppress trimming or dynamic-code warnings.
 | Database identity mismatch | Check service, DID, developer mode, and connection string. Do not erase production state to suppress the error. |
 | List action is rejected | Verify the AT URI points to an existing bot-owned `CurateList`, not a web link, moderation list, starter-pack reference list, or list-item record. |
 | No immediate send after startup | A new lease owner waits for previous bounded requests to drain; rate budgets, cooldowns, and retry schedules may also delay work. Check logs rather than resetting state. |
-| SQLite work disappears after deployment | Check that the file is on persistent local disk, not ephemeral platform/container storage. App Platform examples must use PostgreSQL. |
+| SQLite work disappears after deployment | Check that the file is on persistent local disk, not ephemeral platform/container storage. Choose a database with storage appropriate to your hosting environment. |
 | Queued actions still use old text | Saved payloads intentionally remain unchanged. Policy/config changes affect future ingestion, not existing work. |
 | Recovery cannot reach old history | Inspect the explicit archive-coverage failure. Do not assume endless replay recovery or silently jump to current time. |
 
-Return to the [sample README](../README.md) for detailed replay policies, rate
-limits, graceful shutdown, logging, Docker, and DigitalOcean instructions.
+For the sample's replay policy, rate limits, graceful shutdown, logging, Docker,
+and deployment details, see the
+[MaddyBot README](https://github.com/blowdart/maddyBot).

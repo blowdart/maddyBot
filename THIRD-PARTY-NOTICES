@@ -2,7 +2,7 @@ maddyBot third-party notices
 ===========================
 
 maddyBot uses the components listed below. The inventory is based on this
-repository's application and test packages.lock.json files. Package licenses
+repository's application, test, and build dependencies. Package licenses
 do not replace this project's
 own LICENSE. Report missing or inaccurate notices through
 https://github.com/blowdart/maddyBot/issues.
@@ -10,7 +10,8 @@ https://github.com/blowdart/maddyBot/issues.
 Not every package is included in every published executable. Native AOT can
 remove unused code;
 test and compiler packages are used for development rather than shipped as
-application dependencies. Update this inventory when updating the lock files.
+application dependencies. Update this inventory when adding, removing, or
+upgrading dependencies.
 
 Runtime dependencies
 --------------------
@@ -72,6 +73,7 @@ Microsoft.Extensions.Logging.Configuration               MIT
 Microsoft.Extensions.Options                             MIT
 Microsoft.Extensions.Options.ConfigurationExtensions     MIT
 Microsoft.Extensions.Primitives                          MIT
+Nerdbank.GitVersioning                                   MIT
 Newtonsoft.Json                                          MIT
 System.Formats.Cbor                                      MIT
 xunit                                                    Apache-2.0

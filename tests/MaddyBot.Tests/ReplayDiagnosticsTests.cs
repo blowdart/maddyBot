@@ -17,6 +17,103 @@ namespace MaddyBot.Tests;
 /// <summary>Checks replay diagnostics and the production cleanup sequence without network or database access.</summary>
 public sealed class ReplayDiagnosticsTests
 {
+    /// <summary>Omits inapplicable HTTP cooldowns and retains an actual deadline as structured timestamp data.</summary>
+    /// <param name="hasCooldown">Whether the response advises a future cooldown.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HttpOutcomeOnlyShowsActualCooldown(bool hasCooldown)
+    {
+        DiagnosticLogger logger = new();
+        DateTimeOffset deadline = TestRecords.Start.AddMinutes(5);
+        BotLog.HttpResult(logger, "com.atproto.server.getSession", 200, hasCooldown ? deadline : null);
+        DiagnosticEntry entry = Assert.Single(logger.Entries);
+        Assert.Equal(200, entry.Properties["StatusCode"]);
+        Assert.DoesNotContain("(null)", entry.Message);
+        if (hasCooldown)
+        {
+            Assert.Equal(deadline, entry.Properties["CooldownUntil"]);
+            Assert.Contains(deadline.ToString("O", CultureInfo.InvariantCulture), entry.Message);
+        }
+        else
+        {
+            Assert.Equal("Outbound com.atproto.server.getSession returned HTTP 200.", entry.Message);
+            Assert.False(entry.Properties.ContainsKey("CooldownUntil"));
+        }
+    }
+
+    /// <summary>Distinguishes absent observations, unbounded requests, and unsaved checkpoint positions.</summary>
+    [Fact]
+    public void DescribesEveryMissingLogValue()
+    {
+        DiagnosticLogger logger = new();
+        InvalidOperationException failure = new("original failure");
+        BotLog.Skipped(logger, "record", null, "malformed");
+        BotLog.Outcome(logger, "reply", "default", "at://example/source", "rejected", null, null);
+        BotLog.ReplayWaiting(logger, null, null, TimeSpan.FromSeconds(15));
+        BotLog.EnumerationStarting(
+            logger,
+            Guid.Empty,
+            null,
+            null,
+            "wss://example.test",
+            null,
+            null,
+            "",
+            "",
+            "",
+            0,
+            null,
+            null,
+            null);
+        ReplayDiagnostics diagnostics = new(new DiagnosticTime(), logger);
+        diagnostics.Report(final: true);
+        BotLog.EnumerationFailure(logger, Guid.Empty, "restoring", "failed", null, null, null, null, null, failure);
+        BotLog.EnumerationCancelled(logger, Guid.Empty, "shutdown", "restoring", null, null);
+        BotLog.EnumerationRecovery(logger, Guid.Empty, "retry", "restoring", null, null, null, null, null, failure);
+
+        Assert.All(logger.Entries, entry =>
+        {
+            Assert.DoesNotContain("(null)", entry.Message);
+            Assert.All(entry.Properties, property => Assert.NotNull(property.Value));
+        });
+        Assert.Contains("unavailable in malformed data", logger.Entries.Single(entry => entry.Id == 6).Message);
+        Assert.Contains("not applicable; no remote URI", logger.Entries.Single(entry => entry.Id == 9).Message);
+        Assert.Contains("not yet observed", logger.Entries.Single(entry => entry.Id == 18).Message);
+        Assert.Contains("bounds (unbounded, unbounded]", logger.Entries.Single(entry => entry.Id == 21).Message);
+        DiagnosticEntry summary = logger.Entries.Single(entry => entry.Id == 22);
+        Assert.Contains("not yet established", summary.Message);
+        Assert.Contains("not yet saved", summary.Message);
+        Assert.Contains("no saved archive segment", summary.Message);
+        Assert.Contains("no saved archive position", summary.Message);
+        Assert.Contains("unavailable; no witnessed event time", summary.Message);
+        Assert.Same(failure, logger.Entries.Single(entry => entry.Id == 23).Exception);
+        Assert.Same(failure, logger.Entries.Single(entry => entry.Id == 26).Exception);
+    }
+
+    /// <summary>Keeps available optional values typed and distinguishes valid zero positions from missing data.</summary>
+    [Fact]
+    public void PreservesTypedOptionalMeasurements()
+    {
+        DiagnosticLogger logger = new();
+        BotLog.ReplayWaiting(logger, 0, TestRecords.Start, TimeSpan.Zero);
+        DiagnosticEntry waiting = Assert.Single(logger.Entries);
+        Assert.Equal(0L, waiting.Properties["Sequence"]);
+        Assert.Equal(TestRecords.Start, waiting.Properties["WitnessedAt"]);
+        Assert.Contains(TestRecords.Start.ToString("O", CultureInfo.InvariantCulture), waiting.Message);
+        ReplayDiagnostics diagnostics = new(new DiagnosticTime(), logger);
+        diagnostics.Start("wss://example.test", new() { AfterSeq = 0, BeforeSeq = 100 }, 0, Checkpoint());
+        diagnostics.Processed(11, TestRecords.Start);
+        diagnostics.Report(final: true);
+        DiagnosticEntry summary = logger.Entries.Single(entry => entry.Id == 22);
+        Assert.Equal(10L, summary.Properties["PlanAfterSeq"]);
+        Assert.Equal(2, summary.Properties["NextBlockIndex"]);
+        Assert.Equal(1024L, summary.Properties["NextByteOffset"]);
+        Assert.Equal(TestRecords.Start, summary.Properties["WitnessedAt"]);
+        Assert.IsType<TimeSpan>(summary.Properties["WitnessedLag"]);
+        Assert.Equal(0L, logger.Entries.Single(entry => entry.Id == 21).Properties["AfterSequence"]);
+    }
+
     /// <summary>Describes absent checkpoint cursors without displaying error-looking null values.</summary>
     [Fact]
     public void DescribesUnsavedReplayCursors()
@@ -183,7 +280,12 @@ public sealed class ReplayDiagnosticsTests
         ReplayDiagnostics diagnostics = new(time, logger) { ExitReason = "read-slice timeout" };
         using CancellationTokenSource cancellation = new();
         List<string> ordering = [];
-        using CancellationTokenRegistration registration = cancellation.Token.Register(() => ordering.Add("cancel"));
+        TaskCompletionSource<bool> cancellationObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration registration = cancellation.Token.Register(() =>
+        {
+            ordering.Add("cancel");
+            cancellationObserved.TrySetResult(true);
+        });
         TaskCompletionSource<bool> read = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task cleanup = ReplayCleanup.CloseAsync(cancellation, read.Task, () =>
         {
@@ -192,6 +294,7 @@ public sealed class ReplayDiagnosticsTests
 
             return ValueTask.CompletedTask;
         }, diagnostics, time);
+        await cancellationObserved.Task;
         Assert.Equal(["cancel"], ordering);
         Assert.False(cleanup.IsCompleted);
         time.Advance(TimeSpan.FromMilliseconds(250));

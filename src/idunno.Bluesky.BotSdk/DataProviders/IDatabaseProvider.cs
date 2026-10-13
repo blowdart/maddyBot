@@ -172,3 +172,37 @@ public interface IDatabaseProvider
     /// <remarks><para>Retain pending and uncertain work and preserve rate accounting for its rolling windows.</para></remarks>
     Task<int> PruneAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>Provides optional read-only connection and operational diagnostics for a bot database.</summary>
+/// <remarks>
+/// <para>Built-in providers implement this interface. Custom providers may implement it to support the
+/// sample's doctor check and Prometheus endpoint without expanding the core durable-storage contract.</para>
+/// </remarks>
+public interface IBotDatabaseDiagnostics
+{
+    /// <summary>Checks database connectivity without creating schema or changing durable state.</summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task CheckConnectionAsync(CancellationToken cancellationToken);
+
+    /// <summary>Reads a point-in-time operational snapshot without changing durable state.</summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>Durable progress and counts for pending, uncertain, and retained terminal actions.</returns>
+    Task<BotOperationalSnapshot> GetOperationalSnapshotAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>Describes durable queue and replay state for operational metrics.</summary>
+/// <param name="ProcessedThrough">The greatest sequence whose effects are durably handled; this is not a timestamp or event count.</param>
+/// <param name="PendingActions">The number of actions waiting for their first send attempt.</param>
+/// <param name="UncertainActions">The number of actions whose remote effect may need reconciliation.</param>
+/// <param name="RetryDueActions">The number of pending or uncertain actions whose saved retry time has arrived.</param>
+/// <param name="SentActions">The number of sent actions still within terminal-row retention.</param>
+/// <param name="RejectedActions">The number of terminally rejected actions still within terminal-row retention.</param>
+/// <param name="SimulatedActions">The number of simulated actions still within terminal-row retention.</param>
+public sealed record BotOperationalSnapshot(
+    long ProcessedThrough,
+    long PendingActions,
+    long UncertainActions,
+    long RetryDueActions,
+    long SentActions,
+    long RejectedActions,
+    long SimulatedActions);

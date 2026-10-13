@@ -1,6 +1,7 @@
 // Copyright (c) Barry Dorrans. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -83,7 +84,7 @@ public static class BotActions
         DateTimeOffset? createdAt = null)
     {
         Did author = Author(source);
-        string identity = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{listUri}\n{author}")));
+        string identity = StableListItemRecordKey(listUri, author);
         ListItemIntent item = new(
             listUri,
             author,
@@ -97,6 +98,29 @@ public static class BotActions
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(listUri.ToString()))));
 
         return action with { RecordKey = identity };
+    }
+
+    /// <summary>Creates a stable list-item record key in the required TID format.</summary>
+    /// <param name="listUri">The list record's AT URI.</param>
+    /// <param name="author">The author DID whose membership record is keyed.</param>
+    /// <returns>A deterministic 13-character record key for this list and author pair.</returns>
+    /// <remarks>A raw hexadecimal digest is not a valid rkey because list-item records require a TID.</remarks>
+    private static string StableListItemRecordKey(
+        AtUri listUri,
+        Did author)
+    {
+        ReadOnlySpan<byte> hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{listUri}\n{author}"));
+        ulong value = BinaryPrimitives.ReadUInt64BigEndian(hash) & 0x7fff_ffff_ffff_ffff;
+        const string alphabet = "234567abcdefghijklmnopqrstuvwxyz";
+        Span<char> characters = stackalloc char[13];
+
+        for (int index = characters.Length - 1; index >= 0; index--)
+        {
+            characters[index] = alphabet[(int)(value & 31)];
+            value >>= 5;
+        }
+
+        return TimestampIdentifier.Parse(new string(characters)).ToString();
     }
 
     /// <summary>Builds an application-defined action using explicitly supplied AOT-safe JSON metadata.</summary>

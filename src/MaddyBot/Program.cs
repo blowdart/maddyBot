@@ -16,6 +16,11 @@ using BotOptions = MaddyBot.BotOptions;
 // output is redirected. A program reading redirected output must decode it as UTF-8 too.
 Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
+if (!Console.IsOutputRedirected)
+{
+    Console.Title = $"MaddyBot v{ThisAssembly.AssemblyInformationalVersion}";
+}
+
 DateTimeOffset startedAt = DateTimeOffset.UtcNow;
 
 // Handle help and invalid commands before loading secrets or connecting to dependencies.
@@ -24,8 +29,11 @@ Option<string> lookbackOption = new("--lookback")
 {
     Description = "Once, skip unprocessed replay history older than this duration (for example 30m). Never rewind; retain queued replies."
 };
-
-RootCommand command = new("Bluesky Watcher and Reply Guy") { lookbackOption };
+Option<bool> doctorOption = new("--doctor")
+{
+    Description = "Validate configuration and database connectivity without initializing storage or starting workers."
+};
+RootCommand command = new("Bluesky Watcher and Reply Guy") { lookbackOption, doctorOption };
 command.TreatUnmatchedTokensAsErrors = false;
 
 ParseResult parsed = command.Parse(args);
@@ -76,6 +84,21 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(new ActionStatistics(startedAt));
 builder.Services.AddPostgreSqlBotStorage(connectionString, options.DatabaseCaCertificate);
 
+if (parsed.GetValue(doctorOption))
+{
+    await using WebApplication doctorApp = builder.Build();
+    IDatabaseProvider database = doctorApp.Services.GetRequiredService<IDatabaseProvider>();
+    if (database is not IBotDatabaseDiagnostics diagnostics)
+    {
+        throw new InvalidOperationException("The registered database provider does not support the doctor connection check.");
+    }
+    await diagnostics.CheckConnectionAsync(CancellationToken.None);
+    ILogger logger = doctorApp.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MaddyBot.Doctor");
+    logger.LogInformation("Doctor check passed. Configuration is valid and the database is reachable; storage was not initialized and workers were not started.");
+
+    return;
+}
+
 // Three background workers keep the bot running. The flow for a matching post is:
 // Jetstream -> ReaderWorker -> PostgreSQL's reply_work table -> SenderWorker -> Bluesky.
 //
@@ -96,7 +119,7 @@ builder.Services.AddBlueskyBot<MaddyReplyPolicy>(
     httpUserAgent: "maddyBot/1.0",
     lookbackCutoff: cutoff);
 
-WebApplication app = builder.Build();
+await using WebApplication app = builder.Build();
 
 app.MapGet(
     "/",
@@ -106,5 +129,6 @@ app.MapGet(
 // Probes only inspect memory. Calling a dependency here would make outages slow the probe
 // and could cause restart loops even while the workers are actively recovering.
 app.MapBlueskyBotHealthEndpoints();
+app.MapBlueskyBotMetricsEndpoint();
 
 await app.RunAsync();

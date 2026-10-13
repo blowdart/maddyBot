@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using idunno.AtProto;
 using idunno.AtProto.Repo;
@@ -17,9 +18,63 @@ using Xunit;
 
 namespace MaddyBot.Tests;
 
-/// <summary>Exercises built-in action recovery without publishing records or authenticating a real account.</summary>
+/// <summary>Generates metadata for the custom-handler recovery test payload.</summary>
+[JsonSerializable(typeof(CustomNotificationPayload))]
+internal partial class ActionHandlerJsonContext : JsonSerializerContext;
+
+/// <summary>Stores the complete message selected before its durable notification action is sent.</summary>
+/// <param name="Message">The notification content.</param>
+internal sealed record CustomNotificationPayload(string Message);
+
+/// <summary>Exercises built-in and application-defined action recovery without real remote effects.</summary>
 public sealed class ActionHandlerTests
 {
+    /// <summary>Reconciles an application-defined action after its external service accepts a request but its response is lost.</summary>
+    [Fact]
+    public async Task CustomHandlerReconcilesAcceptedWriteAfterLostResponse()
+    {
+        await using Store store = await Store.CreateAsync();
+        FakeNotificationService service = new() { LoseResponse = true };
+        CustomNotificationHandler handler = new(service);
+        ActionHandlerRegistry handlers = new(
+        [
+            new ReplyActionHandler(),
+            new LikeActionHandler(),
+            new RepostActionHandler(),
+            new BookmarkActionHandler(),
+            new ListItemActionHandler(),
+            handler
+        ]);
+        BotAction action = BotActions.Create(
+            "test-notification",
+            Source(),
+            11,
+            new CustomNotificationPayload("Matching post observed."),
+            ActionHandlerJsonContext.Default.CustomNotificationPayload,
+            actionKey: "matching-post");
+        await store.Database.HandleAsync(11, [action], null, CancellationToken.None);
+        ActionDispatcher dispatcher = new(
+            store.Database,
+            store.Options,
+            NullLogger<ActionDispatcher>.Instance,
+            new ActionStatistics(TestRecords.Start),
+            handlers);
+        FakeRemote remote = new();
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            dispatcher.SendAsync(action, remote, CancellationToken.None));
+        BotAction uncertain = (await store.Database.NextWorkAsync(CancellationToken.None))!;
+        Assert.Equal("uncertain", uncertain.Status);
+        Assert.Equal(action.RecordKey, uncertain.RecordKey);
+        Assert.Equal(action.RecordJson, uncertain.RecordJson);
+
+        await dispatcher.SendAsync(uncertain, remote, CancellationToken.None);
+
+        Assert.Equal(1, service.Writes);
+        Assert.Equal("Matching post observed.", service.AcceptedMessage);
+        Assert.Null(await store.Database.NextWorkAsync(CancellationToken.None));
+    }
+
     /// <summary>Preserves list-item JSON through the SDK's generated public base-record contract.</summary>
     [Fact]
     public void PreservesListPayloadThroughSdkMetadata()
@@ -179,6 +234,7 @@ public sealed class ActionHandlerTests
         BotAction a = BotActions.AddAuthorToList(first, 11, list, TestRecords.Start);
         BotAction b = BotActions.AddAuthorToList(second, 12, list, TestRecords.Start.AddMinutes(1));
         Assert.Equal(a.RecordKey, b.RecordKey);
+        Assert.True(TimestampIdentifier.TryParse(a.RecordKey, out _));
         Assert.Equal(a.ActionKey, b.ActionKey);
         Assert.NotEqual(a.RecordKey, BotActions.AddAuthorToList(first, 11,
             new AtUri($"at://{TestRecords.BotDid}/app.bsky.graph.list/another")).RecordKey);
@@ -226,6 +282,123 @@ public sealed class ActionHandlerTests
             TestRecords.Start),
         _ => throw new ArgumentException("Unknown test kind.", nameof(kind))
     };
+
+    /// <summary>Records the effect accepted by the fake service.</summary>
+    /// <param name="Uri">The stable external resource identifier.</param>
+    /// <param name="Message">The saved notification message.</param>
+    private sealed record CustomNotificationReceipt(string Uri, string Message);
+
+    /// <summary>Uses an idempotency key and fake service lookup to reconcile a custom notification.</summary>
+    /// <param name="service">The fake external service used by this test handler.</param>
+    private sealed class CustomNotificationHandler(FakeNotificationService service) : IBotActionHandler
+    {
+        /// <inheritdoc/>
+        public string Kind => "test-notification";
+
+        /// <inheritdoc/>
+        public int PayloadVersion => 1;
+
+        /// <inheritdoc/>
+        public void Validate(BotAction action)
+        {
+            if (action.ActionKind != Kind || action.PayloadVersion != PayloadVersion ||
+                string.IsNullOrWhiteSpace(ReadPayload(action).Message))
+            {
+                throw new InvalidDataException("The saved notification intent is invalid.");
+            }
+        }
+
+        /// <inheritdoc/>
+        public async Task<BotActionResult?> ReconcileAsync(
+            BotAction action,
+            IBotActionRemote remote,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CustomNotificationReceipt? receipt = await service.FindAsync(action.RecordKey, cancellationToken);
+
+            return receipt is null
+                ? null
+                : new BotActionResult(true, receipt.Uri, "reconciled notification");
+        }
+
+        /// <inheritdoc/>
+        public Task<BotActionResult> ExecuteAsync(
+            BotAction action,
+            IBotActionRemote remote,
+            CancellationToken cancellationToken)
+        {
+            CustomNotificationPayload payload = ReadPayload(action);
+
+            return service.SendAsync(action.RecordKey, payload.Message, cancellationToken);
+        }
+
+        /// <summary>Deserializes a saved custom payload using source-generated metadata.</summary>
+        /// <param name="action">The durable action containing the payload JSON.</param>
+        /// <returns>The complete saved notification payload.</returns>
+        /// <exception cref="InvalidDataException">The serialized payload is null.</exception>
+        /// <exception cref="JsonException">The saved payload is not valid JSON for the notification format.</exception>
+        private static CustomNotificationPayload ReadPayload(BotAction action) =>
+            JsonSerializer.Deserialize(
+                action.RecordJson,
+                ActionHandlerJsonContext.Default.CustomNotificationPayload)
+            ?? throw new InvalidDataException("The saved notification payload is null.");
+    }
+
+    /// <summary>Simulates an external idempotent notification service.</summary>
+    private sealed class FakeNotificationService
+    {
+        private readonly Dictionary<string, CustomNotificationReceipt> _receipts = [];
+
+        /// <summary>Gets or sets a value indicating whether the next accepted request loses its response.</summary>
+        public bool LoseResponse { get; set; }
+
+        /// <summary>Gets the number of newly accepted requests.</summary>
+        public int Writes { get; private set; }
+
+        /// <summary>Finds an accepted notification by its idempotency key.</summary>
+        /// <param name="idempotencyKey">The saved action's stable record key.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>The previously accepted notification, or <see langword="null"/> when absent.</returns>
+        public Task<CustomNotificationReceipt?> FindAsync(
+            string idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(_receipts.GetValueOrDefault(idempotencyKey));
+        }
+
+        /// <summary>Accepts a notification once for its idempotency key.</summary>
+        /// <param name="idempotencyKey">The saved action's stable record key.</param>
+        /// <param name="message">The saved message to accept.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A confirmed action result.</returns>
+        /// <exception cref="HttpRequestException">The service accepted the request but its response was lost.</exception>
+        public Task<BotActionResult> SendAsync(
+            string idempotencyKey,
+            string message,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_receipts.TryGetValue(idempotencyKey, out CustomNotificationReceipt? receipt))
+            {
+                receipt = new($"https://notifications.example/{idempotencyKey}", message);
+                _receipts.Add(idempotencyKey, receipt);
+                Writes++;
+            }
+            if (LoseResponse)
+            {
+                LoseResponse = false;
+                throw new HttpRequestException("Notification accepted, response lost.");
+            }
+
+            return Task.FromResult(new BotActionResult(true, receipt.Uri, "sent notification"));
+        }
+
+        /// <summary>Gets the accepted message, if any.</summary>
+        public string? AcceptedMessage => _receipts.Values.SingleOrDefault()?.Message;
+    }
 
     private sealed class FakeRemote : IBotActionRemote
     {

@@ -163,6 +163,31 @@ public sealed class PolicyTests
         Assert.Throws<InvalidOperationException>(options.Validate);
     }
 
+    /// <summary>Returns only the complete reply intent for an eligible matching post.</summary>
+    [Fact]
+    public void MatchingPostCreatesReplyOnly()
+    {
+        BotOptions options = TestRecords.Options();
+        IReadOnlyList<BotAction> actions = new MaddyReplyPolicy(options).Create(
+            TestRecords.Event(),
+            TestRecords.Start);
+
+        BotAction reply = Assert.Single(actions);
+        Assert.Equal("reply", reply.ActionKind);
+        Assert.Equal(reply.SourceUri, TestRecords.Post(reply).Reply!.Parent.Uri.ToString());
+    }
+
+    /// <summary>Leaves ignored events without reply actions.</summary>
+    [Fact]
+    public void IgnoredPostCreatesNoActions()
+    {
+        IReadOnlyList<BotAction> actions = new MaddyReplyPolicy(TestRecords.Options()).Create(
+            TestRecords.Event("unrelated text"),
+            TestRecords.Start);
+
+        Assert.Empty(actions);
+    }
+
     /// <summary>Filters updates, own posts, excluded DIDs, sync assertions, and events before the first-run time.</summary>
     [Fact]
     public void FiltersIneligibleEvents()

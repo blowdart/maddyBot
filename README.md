@@ -37,7 +37,7 @@ diagnostics, and memory-only health endpoints. It does not contain MaddyBot's
 phrase matching, reply text, or tags.
 
 `src\MaddyBot` is the consuming application: its `BotOptions` extends the SDK's
-options with watch phrases and reply choices, `MaddyReplyPolicy` implements
+options with watch phrases and reply choices; `MaddyReplyPolicy` implements
 `IBotPolicy`, and `Program.cs` owns configuration, CLI arguments, HTTP identity,
 and web hosting. Register runtime services with
 `AddBlueskyBot<TPolicy>(options, httpUserAgent, lookbackCutoff)`
@@ -77,9 +77,9 @@ thread references before saving; retries reuse the saved payload and fixed key.
 private bookmarks, and adding the source author to an existing bot-owned curation
 list**. Application-defined actions use `BotActions.Create<TPayload>` and a
 singleton `IBotActionHandler`; see the [guide](Documentation/BotSdk.md).
-MaddyBot remains reply-only by default. Its settings do not select SDK actions.
-The SDK project does not maintain a package lock file; the application and test
-projects retain theirs.
+MaddyBot intentionally creates only a reply for each eligible match. Package
+versions are centralized in `Directory.Packages.props`; this repository does not
+maintain per-project package lock files.
 
 ## Make this sample your own
 
@@ -99,10 +99,10 @@ The same places are marked with customization comments in the code:
 
 | What you want to change | Where to change it |
 |---|---|
-| Phrases to detect, possible reply texts, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
+| Phrases, reply texts, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
 | How a post counts as a match | The **CUSTOMIZE DETECTION** block in `src\MaddyBot\ReplyPolicy.cs`, inside `ReplyPolicy.Create()`. `NormalizePhrase()` defines the accepted separators and the `.NET`/`dotnet` alias; change those rules if they do not suit your bot. |
 | How to build a reply after a match, such as choosing text from the source post | The **CUSTOMIZE REPLY** block in `ReplyPolicy.Create()`, where `Post reply` is constructed. This runs before the reply is saved, not on each send attempt. |
-| Add likes, reposts, bookmarks, or author-list membership | Return more `BotAction` intents from the policy. See the adaptation below and the [complete multi-action example](Documentation/BotSdk.md#write-a-policy). No dispatcher changes are needed for built-in actions. |
+| Add likes, reposts, bookmarks, or author-list membership | Adapt the policy to return more `BotAction` intents. See the [complete multi-action example](Documentation/BotSdk.md#write-a-policy). No dispatcher changes are needed for built-in actions. |
 | Add an application-defined remote action | Implement `IBotActionHandler` and use `BotActions.Create<TPayload>`; see [Custom actions](Documentation/BotSdk.md#custom-actions). `ActionDispatcher.cs`, `BuiltInActionHandlers.cs`, and `BlueskyActionRemote.cs` implement the existing runtime behavior, not sample customization points. |
 | The HTTP application identity | The **CUSTOMIZE HTTP IDENTITY** comment in `src\MaddyBot\Program.cs`, above `httpUserAgent`. |
 
@@ -116,50 +116,14 @@ action construction free of remote writes: the reader must save each intended
 action before the sender attempts it. Keep the saved record key, content,
 creation time and thread references unchanged on retries.
 
-### Return several actions from the sample
+### Adapt the sample to return several actions
 
-`MaddyReplyPolicy` already implements `IBotPolicy`, but its internal
-`ReplyPolicy.Create()` helper returns a nullable single action. To keep the
-sample's existing matching and eligibility checks while adding a like:
-
-1. Change the helper's return type from `BotAction?` to
-   `IReadOnlyList<BotAction>`. Keep its existing arguments and every filter.
-2. Change every `return null;` in that helper to `return [];`.
-3. Keep construction of `parent` and `reply` in the **CUSTOMIZE REPLY** block,
-   then replace the final single-action return with:
-
-   ```csharp
-   return
-   [
-       BotActions.Reply(
-           parent,
-           sequence,
-           reply),
-       BotActions.Like(
-           parent,
-           sequence)
-   ];
-   ```
-
-4. Replace the adapter method in `MaddyReplyPolicy` with:
-
-   ```csharp
-   public IReadOnlyList<BotAction> Create(
-       JetstreamEvent item,
-       DateTimeOffset startedAt)
-   {
-       return ReplyPolicy.Create(
-           item,
-           startedAt,
-           options);
-   }
-   ```
-
-Do not change only the final return: the helper and adapter must both return
-collections. Removing the `Reply` intent makes this a like-only policy; the
-unchanged sample options still validate `Bot:Replies`, so leave a valid configured
-reply even if unused. For a standalone policy without reply-only settings, copy
-the [SDK example](Documentation/BotSdk.md#write-a-policy) instead.
+`MaddyReplyPolicy.Create()` adapts the sample's nullable reply helper into an
+empty batch or a batch containing only the reply. The sample does not perform
+other actions. To add a built-in action, use the helper overload that also
+returns the source reference, then include both the reply and the new action in
+the returned collection. For a standalone multi-action policy, see the
+[SDK example](Documentation/BotSdk.md#write-a-policy).
 
 Do not remove the normal-create, post-collection, sync-backfill, self/excluded-DID,
 or witnessed-start-time checks when adapting the sample. Reply roots remain the
@@ -169,8 +133,11 @@ call by hand. Multiple actions can complete at different times, and a terminal
 rejection of one does not roll back actions already completed.
 
 Add examples for your new matching/reply rules in
-`tests\MaddyBot.Tests\PolicyTests.cs`. If you change sending or recovery, extend
-`PostgresTests.cs` and its fake remote tests as well. Changed settings apply on
+`tests\MaddyBot.Tests\PolicyTests.cs`. Shared storage and recovery behavior is
+tested across PostgreSQL, MySQL, and SQLite in
+`tests\MaddyBot.Tests\RelationalProviderTests.cs`; SQLite-only connection rules
+are in `SqliteProviderTests.cs`, and durable action sending/reconciliation cases
+are in `RelationalProviderActionTests.cs`. Changed settings apply on
 restart; they do not rewrite already queued replies or revisit consumed posts.
 Use separate databases for development and production, rather than clearing
 stored progress to test a new rule. The legacy database table name `reply_work`
@@ -182,29 +149,41 @@ only replies.
 Install the .NET 10 SDK and Docker, then:
 
 ```powershell
-dotnet restore MaddyBot.slnx --locked-mode
+dotnet restore MaddyBot.slnx
 dotnet build MaddyBot.slnx --no-restore
 dotnet test MaddyBot.slnx --no-build
 ```
 
 Package versions are centralized in `Directory.Packages.props`; feed configuration
 and package-source mapping are centralized in `nuget.config`. Both SDK packages are
-pinned to `8.0.0-prerelease.ged793b892b`, corresponding to
-[`ed793b892bf785b244e74a0ba4d00e1a6dc2a61e`](https://github.com/blowdart/idunno.Bluesky/commit/ed793b892bf785b244e74a0ba4d00e1a6dc2a61e),
-which includes validation fixes, configurable replay buffering, and fixed-key
-`Post()` overloads. Sending uses `Post(rKey, savedPost, extractFacets: false)` to
-preserve the durable reply record during retries and reconciliation.
+pinned to `8.0.0-prerelease.ga282f8f4ca`, corresponding to
+[`a282f8f4ca70cfa952c595fc8693979918fe6db5`](https://github.com/blowdart/idunno.Bluesky/commit/a282f8f4ca70cfa952c595fc8693979918fe6db5).
 New replies receive a lexicon-valid TID from `TimestampIdentifier.Next()` before
 enqueue; generic keys such as `maddy-<GUID>` are not valid post record keys.
 Existing queued work keeps its saved key and is never silently re-keyed.
 
-Availability was checked before choosing the reference: nuget.org did not publish
-8.0.0, and the README's MyGet feed did not list the requested prerelease. With
-explicit approval, this repository uses the SDK publisher's
-`https://packages.idunno.blue/feed/index.json`, which contains the exact build.
-It does not silently substitute an older package or track a moving Git branch.
-Lock files include transitive package hashes. When upgrading, review replay
-checkpoint compatibility and the SDK-specific generation-mismatch classifier.
+### Versioning
+
+MaddyBot uses [Nerdbank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning)
+to stamp its assembly and executable with version information derived from Git.
+The SDK project does not use this package. The committed
+`version.json` starts at `1.0-alpha`; no Git tags are required. CI fetches full
+history so version height and commit identity are calculated for the build.
+
+Version intent is recorded in `version.json`, not injected during release builds.
+For a stable `1.0` release, commit a change from `"version": "1.0-alpha"` to
+`"version": "1.0"`. To start the next prerelease line, commit `"version":
+"1.1-alpha"`. Builds from `main` are configured as public releases; other refs
+include a commit identifier so their versions remain distinct. The informational
+version includes the Git commit ID. Managed builds in a Git working tree mark
+uncommitted changes `dirty`; the Docker build stamps the supplied commit ID
+without copying Git metadata into its context.
+
+The exact prerelease is available from the public MyGet feed at
+`https://www.myget.org/F/blowdart/api/v3/index.json`; `nuget.config` maps the
+idunno packages to that feed, and Dependabot uses the same source. When upgrading,
+review replay checkpoint compatibility and the SDK-specific generation-mismatch
+classifier.
 
 ### Native AOT
 
@@ -216,8 +195,15 @@ image rather than an ASP.NET runtime image. No .NET runtime is needed in the
 resulting container. Use Docker's Linux-container mode:
 
 ```powershell
-docker build --platform linux/amd64 --tag maddybot:dev .
+$commit = git rev-parse HEAD
+$ref = git symbolic-ref HEAD
+docker build --platform linux/amd64 --build-arg GITHUB_ACTIONS=true --build-arg "GITHUB_SHA=$commit" --build-arg "GITHUB_REF=$ref" --tag maddybot:dev .
 ```
+
+The Docker build does not copy `.git` into its context or image. Pass the commit
+and ref as build arguments so the native executable retains its commit identity.
+Because the build context has no Git history, the Docker build cannot calculate
+version height; CI's full-history managed build does.
 
 `BotJsonContext.cs` generates JSON metadata for credentials and health responses.
 `BotJson` in the same file reuses the SDK's generated metadata for posts, replay
@@ -229,13 +215,13 @@ when adding SDK types, use metadata supplied by the SDK.
 
 Native publish must run on the target operating system with its native toolchain.
 For a different architecture or OS, restore/publish for that runtime identifier,
-update the project's `RuntimeIdentifiers` and lock file deliberately, and validate the resulting executable; do
+update the project's `RuntimeIdentifiers` deliberately, and validate the resulting executable; do
 not assume the tested Linux-x64 image can run on ARM or Windows. A Windows native
 publish also needs the Visual Studio C++ build tools. AOT/trimming warnings are
 not suppressed by this application.
 
-The project locks both `win-x64` for local Windows development and `linux-x64`
-for the container, so an ordinary locked restore works on either host. The
+The project declares both `win-x64` for local Windows development and `linux-x64`
+for the container, so an ordinary restore works on either host. The
 native runtime checks performed for this sample target Linux x64; Windows native
 publishing has not been verified.
 
@@ -281,6 +267,7 @@ dotnet user-secrets set --project src\MaddyBot "Bot:ArchiveApiKey" "<jetstream-a
 dotnet user-secrets set --project src\MaddyBot "Bot:DeveloperMode" "true"
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = 'http://127.0.0.1:8080'
+dotnet run --project src\MaddyBot --no-launch-profile -- --doctor
 dotnet run --project src\MaddyBot --no-launch-profile
 ```
 
@@ -290,7 +277,9 @@ actual DID. Obtain the archive key from
 [bsky.network](https://bsky.network/account#api-keys-section-heading).
 User secrets are not encrypted; they are for local development, not production.
 `--no-launch-profile` prevents local launch settings from overriding the HTTP
-address above.
+address above. The optional `--doctor` invocation validates the bound
+configuration and checks database connectivity without initializing schema,
+acquiring ownership, or starting workers.
 
 **Developer mode is enabled by default.** It needs the database, archive key, and
 bot DID, but does not log in or perform remote actions. It records `simulated`
@@ -365,8 +354,9 @@ creation time, and fixed record key are persisted. Changing the array does not
 change pending work or pick a different reply on retry.
 
 `WatchPhrases` must contain at least one nonblank phrase. Matching any phrase
-enqueues one reply, even if several phrases match. Separator normalization is only
-used for matching; original post content and reply text remain unchanged.
+enqueues one reply, even if several phrases match.
+Separator normalization is only used for matching; original post content and
+reply text remain unchanged.
 Settings apply on restart and do not reprocess already-consumed posts.
 
 The bot never enqueues replies to its own DID or an excluded DID. The sender
@@ -514,7 +504,10 @@ developer-mode simulations, not skipped targets or failed attempts.
 state machines. It returns 503 for failed workers or overdue operations.
 Processing, idle polls, rate waits, standby, and actively progressing dependency
 recovery are healthy. `/health/dependencies` reports recovery dependencies
-separately; do not use it as the restart probe.
+separately; do not use it as the restart probe. `/metrics` provides a separate
+Prometheus text endpoint for durable action counts and the processed-through
+sequence. It queries PostgreSQL on each scrape and is not a health check; restrict
+network access and avoid high-frequency scraping.
 
 Replay reads have a five-minute slice and bounded cancellation/close deadlines.
 Real SDK quota/retry timers extend the slice to their requested deadline plus a
@@ -526,6 +519,11 @@ Actions use .NET **source-generated** `[LoggerMessage]` methods in `BotLog.cs` a
 human-readable console logging with UTC timestamps. Enqueue, simulate, send, reconcile, skip, cooldown, retry,
 authentication, ownership, and fatal outcomes carry structured properties and
 stable event IDs. Secrets and credential objects are not logged.
+Optional observations use explicit descriptions such as "unbounded", "not yet
+observed", or "not yet saved" instead of displaying `(null)` or inventing zero
+values. HTTP outcomes include a cooldown clause only when a future deadline
+exists. Available sequence numbers, timestamps, and durations remain typed
+structured properties.
 
 MaddyBot explicitly enables Information-level logs for
 `idunno.Bluesky.BotSdk.ActionDispatcher` in `appsettings.json`. Outcome logs
@@ -583,7 +581,9 @@ Compare catch-up overflow counts, event-time lag and memory after restarting.
 ## Docker and hosting
 
 ```powershell
-docker build --platform linux/amd64 --tag maddybot:dev .
+$commit = git rev-parse HEAD
+$ref = git symbolic-ref HEAD
+docker build --platform linux/amd64 --build-arg GITHUB_ACTIONS=true --build-arg "GITHUB_SHA=$commit" --build-arg "GITHUB_REF=$ref" --tag maddybot:dev .
 ```
 
 The image runs as the .NET non-root user on port 8080. Its Docker `HEALTHCHECK`
@@ -632,6 +632,37 @@ single-host deployments only when its database file lives on persistent local
 storage.
 
 ## Tests
+
+The [CI workflow](.github/workflows/ci.yml) runs on pull requests and pushes to
+`main`, and can also be started manually. It restores dependencies, builds
+the Debug solution using full Git history for version calculation, checks
+formatting, and runs the full suite against disposable
+PostgreSQL 16 and MySQL 8.4 services plus isolated SQLite files. Skipped tests fail
+the coverage gate. A separate job builds the Linux x64 Native AOT Docker image
+and runs `--help` with networking disabled; CI never authenticates a real bot
+or publishes Bluesky actions.
+
+Actions are pinned to immutable commit SHAs. Test results, database failure logs,
+and native build logs are retained as workflow artifacts for 14 days so the
+original failure can be diagnosed before rerunning a job. The separate
+[Test Results workflow](.github/workflows/test-results.yml) publishes the saved
+TRX results as a check on the tested commit and a comment on pull requests,
+including fork pull requests. It uses the original CI event to associate results
+with the correct PR and never checks out or executes PR code with write permissions.
+Missing or inconclusive results fail reporting rather than being presented as
+passing tests. The database passwords
+in the workflow are public, disposable CI-only values, not deployment credentials.
+
+[Dependabot](.github/dependabot.yml) checks NuGet packages, SHA-pinned GitHub
+Actions, and Docker base images weekly and opens update pull requests. The
+NuGet configuration includes the public MyGet prerelease feed and groups the
+related idunno SDK packages into one update. Version updates in all three ecosystems have a
+seven-day cooldown after publication, allowing time for newly published malicious
+releases to be detected. This reduces risk but does not guarantee package safety;
+Dependabot security updates bypass the cooldown, and ordinary restores do not
+enforce it for newly resolved transitive dependencies. Review SDK replay compatibility and
+update `THIRD-PARTY-NOTICES` for dependency changes before merging; updates are
+not automatically merged.
 
 Unit tests do not contact Bluesky. The provider-test runner is located alongside
 the SDK's database creation helpers:

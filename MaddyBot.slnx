@@ -12,6 +12,7 @@
     <File Path="global.json" />
     <File Path="LICENSE" />
     <File Path="nuget.config" />
+    <File Path="version.json" />
     <File Path="README.md" />
     <File Path="THIRD-PARTY-NOTICES" />
   </Folder>
@@ -20,9 +21,14 @@
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github\copilot-instructions.md" />
+    <File Path=".github\dependabot.yml" />
   </Folder>
   <Folder Name="/.github/instructions/">
     <File Path=".github\instructions\docs.instructions.md" />
+  </Folder>
+  <Folder Name="/.github/workflows/">
+    <File Path=".github\workflows\ci.yml" />
+    <File Path=".github\workflows\test-results.yml" />
   </Folder>
   <Folder Name="/Documentation/">
     <File Path="Documentation\BotSdk.md" />

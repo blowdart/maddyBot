@@ -24,7 +24,7 @@ public sealed class MySqlDatabaseProvider(
     string connectionString,
     BotOptions options,
     TimeProvider time,
-    ILogger<MySqlDatabaseProvider> logger) : IDatabaseProvider
+    ILogger<MySqlDatabaseProvider> logger) : IDatabaseProvider, IBotDatabaseDiagnostics
 {
     private readonly string _connectionString = Configure(connectionString);
     private readonly BotOptions _options = options;
@@ -306,6 +306,15 @@ public sealed class MySqlDatabaseProvider(
         }
     }
 
+    /// <inheritdoc/>
+    public async Task CheckConnectionAsync(CancellationToken cancellationToken)
+    {
+        await using MySqlConnection connection = CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using DbCommand command = Command(connection, null, "SELECT 1");
+        _ = await command.ExecuteScalarAsync(cancellationToken);
+    }
+
     /// <summary>Supplies repeatable creation statements for the provider's durable tables.</summary>
     /// <returns>The ordered SQL statements that initialize missing tables without deleting saved state.</returns>
     /// <remarks><para>Initialization holds a named schema lock because MySQL DDL commits independently.
@@ -415,6 +424,41 @@ public sealed class MySqlDatabaseProvider(
             return state;
         },
             cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<BotOperationalSnapshot> GetOperationalSnapshotAsync(CancellationToken cancellationToken)
+    {
+        await using MySqlConnection connection = CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using DbCommand command = Command(
+            connection,
+            null,
+            $"""
+            SELECT
+                COALESCE((SELECT processed_through FROM bot_state WHERE id = 1), 0),
+                COUNT(CASE WHEN status = 'pending' THEN 1 END),
+                COUNT(CASE WHEN status = 'uncertain' THEN 1 END),
+                COUNT(CASE WHEN status IN ('pending', 'uncertain') AND next_retry <= {NowSql} THEN 1 END),
+                COUNT(CASE WHEN status = 'sent' THEN 1 END),
+                COUNT(CASE WHEN status = 'not-sent' THEN 1 END),
+                COUNT(CASE WHEN status = 'simulated' THEN 1 END)
+            FROM reply_work
+            """);
+        await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Operational snapshot query returned no row.");
+        }
+
+        return new(
+            Integer(reader.GetValue(0)),
+            Integer(reader.GetValue(1)),
+            Integer(reader.GetValue(2)),
+            Integer(reader.GetValue(3)),
+            Integer(reader.GetValue(4)),
+            Integer(reader.GetValue(5)),
+            Integer(reader.GetValue(6)));
+    }
 
     /// <inheritdoc/>
     public Task<int> SaveRequestAsync(SnapshotRequest request, CancellationToken cancellationToken) =>

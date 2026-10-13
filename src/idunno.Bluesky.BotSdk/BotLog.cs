@@ -55,8 +55,16 @@ internal static partial class BotLog
         int actionCount);
 
     /// <summary>Explicitly identifies intentional malformed-data loss rather than disguising it as recovery.</summary>
+    /// <param name="logger">The structured diagnostic logger.</param>
+    /// <param name="scope">The malformed-data scope being skipped.</param>
+    /// <param name="sequence">The source sequence, if the malformed data provided one.</param>
+    /// <param name="reason">The audited reason for data loss.</param>
+    public static void Skipped(ILogger logger, string scope, long? sequence, string reason) =>
+        SkippedCore(logger, scope, Optional(sequence, "unavailable in malformed data"), reason);
+
+    /// <summary>Emits data-loss diagnostics with an explicit explanation when the sequence is unavailable.</summary>
     [LoggerMessage(6, LogLevel.Warning, "DATA LOSS: skipping {Scope} at sequence {Sequence}: {Reason}.")]
-    public static partial void Skipped(ILogger logger, string scope, long? sequence, string reason);
+    private static partial void SkippedCore(ILogger logger, string scope, object sequence, string reason);
 
     /// <summary>Reports an audited malformed-post skip with the original exception.</summary>
     [LoggerMessage(31, LogLevel.Warning, "DATA LOSS: skipping post {SourceUri} at sequence {Sequence}: {Reason}.")]
@@ -75,15 +83,33 @@ internal static partial class BotLog
         string actionKey);
 
     /// <summary>Reports a newly committed terminal action outcome, including its remote URI and reconciliation reason.</summary>
-    [LoggerMessage(9, LogLevel.Information, "Action {ActionKind}/{ActionKey} for {SourceUri} has outcome {Outcome}; remote URI {RemoteUri}; reason {Reason}.")]
-    public static partial void Outcome(
+    public static void Outcome(
         ILogger logger,
         string actionKind,
         string actionKey,
         string sourceUri,
         string outcome,
         string? remoteUri,
-        string? reason);
+        string? reason) =>
+        OutcomeCore(
+            logger,
+            actionKind,
+            actionKey,
+            sourceUri,
+            outcome,
+            remoteUri ?? "not applicable; no remote URI",
+            reason ?? "not provided");
+
+    /// <summary>Emits action outcomes with explicit descriptions for absent remote identities and reasons.</summary>
+    [LoggerMessage(9, LogLevel.Information, "Action {ActionKind}/{ActionKey} for {SourceUri} has outcome {Outcome}; remote URI {RemoteUri}; reason {Reason}.")]
+    private static partial void OutcomeCore(
+        ILogger logger,
+        string actionKind,
+        string actionKey,
+        string sourceUri,
+        string outcome,
+        string remoteUri,
+        string reason);
 
     /// <summary>Reports a durably scheduled action retry without treating an uncertain write as absent.</summary>
     [LoggerMessage(10, LogLevel.Warning, "Action for {SourceUri} is uncertain or retryable; attempt {Attempt}, retry at {RetryAt}, reason {Reason}.")]
@@ -98,8 +124,29 @@ internal static partial class BotLog
     public static partial void CredentialsSaved(ILogger logger, string did);
 
     /// <summary>Reports HTTP status and cooldown advice without exposing headers or credentials.</summary>
-    [LoggerMessage(13, LogLevel.Information, "Outbound {Operation} returned HTTP {StatusCode}; cooldown until {CooldownUntil}.")]
-    public static partial void HttpResult(ILogger logger, string operation, int statusCode, DateTimeOffset? cooldownUntil);
+    /// <param name="logger">The structured HTTP logger.</param>
+    /// <param name="operation">The protocol operation name without query strings or credentials.</param>
+    /// <param name="statusCode">The observed HTTP response status.</param>
+    /// <param name="cooldownUntil">The server-advised future deadline, if one exists.</param>
+    public static void HttpResult(ILogger logger, string operation, int statusCode, DateTimeOffset? cooldownUntil)
+    {
+        if (cooldownUntil is DateTimeOffset deadline)
+        {
+            HttpCooldown(logger, operation, statusCode, deadline);
+        }
+        else
+        {
+            HttpResultCore(logger, operation, statusCode);
+        }
+    }
+
+    /// <summary>Emits an ordinary HTTP outcome without an inapplicable cooldown clause.</summary>
+    [LoggerMessage(13, LogLevel.Information, "Outbound {Operation} returned HTTP {StatusCode}.")]
+    private static partial void HttpResultCore(ILogger logger, string operation, int statusCode);
+
+    /// <summary>Emits an HTTP outcome with the actual advised deadline as a typed structured property.</summary>
+    [LoggerMessage(33, LogLevel.Information, "Outbound {Operation} returned HTTP {StatusCode}; cooldown until {CooldownUntil:O}.")]
+    private static partial void HttpCooldown(ILogger logger, string operation, int statusCode, DateTimeOffset cooldownUntil);
 
     /// <summary>Reports pruning of expired accounting, audits, and terminal actions covered by durable progress.</summary>
     [LoggerMessage(14, LogLevel.Information, "Pruned {Count} expired rate reservations, skip audits, and safely covered terminal actions.")]
@@ -125,8 +172,16 @@ internal static partial class BotLog
         double eventsPerSecond);
 
     /// <summary>Reports a quiet read without claiming the socket is connected.</summary>
+    public static void ReplayWaiting(ILogger logger, long? sequence, DateTimeOffset? witnessedAt, TimeSpan quietFor) =>
+        ReplayWaitingCore(
+            logger,
+            Optional(sequence, "not yet observed"),
+            Optional(witnessedAt, "not yet observed"),
+            quietFor);
+
+    /// <summary>Emits quiet-read observations without inventing an event before the first one arrives.</summary>
     [LoggerMessage(18, LogLevel.Information, "Waiting for the next Jetstream event or SDK recovery. Last consumed sequence {Sequence}, event time {WitnessedAt:O}; last event received {QuietFor} ago. This does not confirm the socket is connected.")]
-    public static partial void ReplayWaiting(ILogger logger, long? sequence, DateTimeOffset? witnessedAt, TimeSpan quietFor);
+    private static partial void ReplayWaitingCore(ILogger logger, object sequence, object witnessedAt, TimeSpan quietFor);
 
     /// <summary>Emits restored progress using explicitly labelled missing-cursor descriptions.</summary>
     /// <param name="logger">The structured replay logger.</param>
@@ -161,8 +216,7 @@ internal static partial class BotLog
     public static partial void LookbackIgnored(ILogger logger);
 
     /// <summary>Reports SDK identity and the saved replay plan for a correlated enumeration.</summary>
-    [LoggerMessage(21, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} starting. SDK assembly {AssemblyVersion}, informational version {InformationalVersion}; host {Host}; bounds ({AfterSequence}, {BeforeSequence}]; collections [{Collections}], kinds [{Kinds}], DIDs [{Dids}]. Resume processed {ProcessedThrough}, checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
-    public static partial void EnumerationStarting(
+    public static void EnumerationStarting(
         ILogger logger,
         Guid replayEnumerationId,
         string? assemblyVersion,
@@ -176,11 +230,43 @@ internal static partial class BotLog
         long processedThrough,
         long? planAfterSeq,
         long? replayAfterSeq,
-        long? liveAfterSeq);
+        long? liveAfterSeq) =>
+        EnumerationStartingCore(
+            logger,
+            replayEnumerationId,
+            assemblyVersion ?? "unavailable",
+            informationalVersion ?? "unavailable",
+            host,
+            Optional(afterSequence, "unbounded"),
+            Optional(beforeSequence, "unbounded"),
+            collections,
+            kinds,
+            dids,
+            processedThrough,
+            Optional(planAfterSeq, "not yet saved"),
+            Optional(replayAfterSeq, "not yet saved"),
+            Optional(liveAfterSeq, "not yet saved"));
+
+    /// <summary>Emits replay bounds and saved cursors while retaining the numeric types of available values.</summary>
+    [LoggerMessage(21, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} starting. SDK assembly {AssemblyVersion}, informational version {InformationalVersion}; host {Host}; bounds ({AfterSequence}, {BeforeSequence}]; collections [{Collections}], kinds [{Kinds}], DIDs [{Dids}]. Resume processed {ProcessedThrough}, checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
+    private static partial void EnumerationStartingCore(
+        ILogger logger,
+        Guid replayEnumerationId,
+        string assemblyVersion,
+        string informationalVersion,
+        string host,
+        object afterSequence,
+        object beforeSequence,
+        string collections,
+        string kinds,
+        string dids,
+        long processedThrough,
+        object planAfterSeq,
+        object replayAfterSeq,
+        object liveAfterSeq);
 
     /// <summary>Reports bounded cumulative work and wait measurements, distinguishing memory from durable progress.</summary>
-    [LoggerMessage(22, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} summary (final={Final}, phase={Phase}, exit={ExitReason}): {ElapsedSeconds:F1}s, cumulative consumed {EventsConsumed}, relevant committed {RelevantEvents}, interval rate {EventsPerSecond:F1}/s; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; last saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}, sealed tip {SealedTipSeq}, segment {SegmentName}, next block {NextBlockIndex}, byte offset {NextByteOffset}; saves {CheckpointSaves}, failures {CheckpointFailures}. Cumulative timings count/total-ms/max-ms: event handling {HandlingCount}/{HandlingTotalMs:F1}/{HandlingMaxMs:F1} (includes event DB work); database {DatabaseCount}/{DatabaseTotalMs:F1}/{DatabaseMaxMs:F1} (includes checkpoints); checkpoints {CheckpointCount}/{CheckpointTotalMs:F1}/{CheckpointMaxMs:F1}; read waits {ReadCount}/{ReadWaitTotalMs:F1}/{ReadWaitMaxMs:F1} (count completed; total/max include pending read, exclude DB callbacks; not evidence of slow consumption). Last processed event witnessed at {WitnessedAt:O}; wall-clock minus witnessed-time lag {WitnessedLag}.")]
-    public static partial void EnumerationSummary(
+    public static void EnumerationSummary(
         ILogger logger,
         Guid replayEnumerationId,
         bool final,
@@ -214,11 +300,83 @@ internal static partial class BotLog
         double readWaitTotalMs,
         double readWaitMaxMs,
         DateTimeOffset? witnessedAt,
-        TimeSpan? witnessedLag);
+        TimeSpan? witnessedLag) =>
+        EnumerationSummaryCore(
+            logger,
+            replayEnumerationId,
+            final,
+            phase,
+            exitReason,
+            elapsedSeconds,
+            eventsConsumed,
+            relevantEvents,
+            eventsPerSecond,
+            Optional(processedThrough, "not yet established"),
+            Optional(durableThrough, "not yet established"),
+            Optional(planAfterSeq, "not yet saved"),
+            Optional(replayAfterSeq, "not yet saved"),
+            Optional(liveAfterSeq, "not yet saved"),
+            Optional(sealedTipSeq, "not yet saved"),
+            segmentName ?? "no saved archive segment",
+            Optional(nextBlockIndex, "no saved archive position"),
+            Optional(nextByteOffset, "no saved archive position"),
+            checkpointSaves,
+            checkpointFailures,
+            handlingCount,
+            handlingTotalMs,
+            handlingMaxMs,
+            databaseCount,
+            databaseTotalMs,
+            databaseMaxMs,
+            checkpointCount,
+            checkpointTotalMs,
+            checkpointMaxMs,
+            readCount,
+            readWaitTotalMs,
+            readWaitMaxMs,
+            Optional(witnessedAt, "not yet observed"),
+            Optional(witnessedLag, "unavailable; no witnessed event time"));
+
+    /// <summary>Emits aggregate timings with explicit unavailable-state descriptions and typed available measurements.</summary>
+    [LoggerMessage(22, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} summary (final={Final}, phase={Phase}, exit={ExitReason}): {ElapsedSeconds:F1}s, cumulative consumed {EventsConsumed}, relevant committed {RelevantEvents}, interval rate {EventsPerSecond:F1}/s; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; last saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}, sealed tip {SealedTipSeq}, segment {SegmentName}, next block {NextBlockIndex}, byte offset {NextByteOffset}; saves {CheckpointSaves}, failures {CheckpointFailures}. Cumulative timings count/total-ms/max-ms: event handling {HandlingCount}/{HandlingTotalMs:F1}/{HandlingMaxMs:F1} (includes event DB work); database {DatabaseCount}/{DatabaseTotalMs:F1}/{DatabaseMaxMs:F1} (includes checkpoints); checkpoints {CheckpointCount}/{CheckpointTotalMs:F1}/{CheckpointMaxMs:F1}; read waits {ReadCount}/{ReadWaitTotalMs:F1}/{ReadWaitMaxMs:F1} (count completed; total/max include pending read, exclude DB callbacks; not evidence of slow consumption). Last processed event witnessed at {WitnessedAt:O}; wall-clock minus witnessed-time lag {WitnessedLag}.")]
+    private static partial void EnumerationSummaryCore(
+        ILogger logger,
+        Guid replayEnumerationId,
+        bool final,
+        string phase,
+        string exitReason,
+        double elapsedSeconds,
+        long eventsConsumed,
+        long relevantEvents,
+        double eventsPerSecond,
+        object processedThrough,
+        object durableThrough,
+        object planAfterSeq,
+        object replayAfterSeq,
+        object liveAfterSeq,
+        object sealedTipSeq,
+        string segmentName,
+        object nextBlockIndex,
+        object nextByteOffset,
+        long checkpointSaves,
+        long checkpointFailures,
+        long handlingCount,
+        double handlingTotalMs,
+        double handlingMaxMs,
+        long databaseCount,
+        double databaseTotalMs,
+        double databaseMaxMs,
+        long checkpointCount,
+        double checkpointTotalMs,
+        double checkpointMaxMs,
+        long readCount,
+        double readWaitTotalMs,
+        double readWaitMaxMs,
+        object witnessedAt,
+        object witnessedLag);
 
     /// <summary>Reports the original enumeration exception and progress at the observed failure phase.</summary>
-    [LoggerMessage(23, LogLevel.Error, "Replay enumeration {ReplayEnumerationId}: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
-    public static partial void EnumerationFailure(
+    public static void EnumerationFailure(
         ILogger logger,
         Guid replayEnumerationId,
         string phase,
@@ -228,6 +386,31 @@ internal static partial class BotLog
         long? planAfterSeq,
         long? replayAfterSeq,
         long? liveAfterSeq,
+        Exception exception) =>
+        EnumerationFailureCore(
+            logger,
+            replayEnumerationId,
+            phase,
+            reason,
+            Optional(processedThrough, "not yet established"),
+            Optional(durableThrough, "not yet established"),
+            Optional(planAfterSeq, "not yet saved"),
+            Optional(replayAfterSeq, "not yet saved"),
+            Optional(liveAfterSeq, "not yet saved"),
+            exception);
+
+    /// <summary>Emits the original replay failure with explicit missing-progress explanations.</summary>
+    [LoggerMessage(23, LogLevel.Error, "Replay enumeration {ReplayEnumerationId}: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
+    private static partial void EnumerationFailureCore(
+        ILogger logger,
+        Guid replayEnumerationId,
+        string phase,
+        string reason,
+        object processedThrough,
+        object durableThrough,
+        object planAfterSeq,
+        object replayAfterSeq,
+        object liveAfterSeq,
         Exception exception);
 
     /// <summary>Reports cleanup milestones and elapsed time while retaining associated exception details.</summary>
@@ -241,18 +424,33 @@ internal static partial class BotLog
         Exception? exception = null);
 
     /// <summary>Reports observed cancellation signals before cleanup begins.</summary>
-    [LoggerMessage(25, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} cancellation observed before cleanup: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}.")]
-    public static partial void EnumerationCancelled(
+    public static void EnumerationCancelled(
         ILogger logger,
         Guid replayEnumerationId,
         string reason,
         string phase,
         long? processedThrough,
-        long? durableThrough);
+        long? durableThrough) =>
+        EnumerationCancelledCore(
+            logger,
+            replayEnumerationId,
+            reason,
+            phase,
+            Optional(processedThrough, "not yet established"),
+            Optional(durableThrough, "not yet established"));
+
+    /// <summary>Emits cancellation observations without inventing a progress boundary.</summary>
+    [LoggerMessage(25, LogLevel.Information, "Replay enumeration {ReplayEnumerationId} cancellation observed before cleanup: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}.")]
+    private static partial void EnumerationCancelledCore(
+        ILogger logger,
+        Guid replayEnumerationId,
+        string reason,
+        string phase,
+        object processedThrough,
+        object durableThrough);
 
     /// <summary>Reports an existing recovery decision without turning a hypothesis into an observed cause.</summary>
-    [LoggerMessage(26, LogLevel.Warning, "Replay enumeration {ReplayEnumerationId} existing recovery action: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
-    public static partial void EnumerationRecovery(
+    public static void EnumerationRecovery(
         ILogger logger,
         Guid replayEnumerationId,
         string reason,
@@ -262,5 +460,38 @@ internal static partial class BotLog
         long? planAfterSeq,
         long? replayAfterSeq,
         long? liveAfterSeq,
+        Exception? exception) =>
+        EnumerationRecoveryCore(
+            logger,
+            replayEnumerationId,
+            reason,
+            phase,
+            Optional(processedThrough, "not yet established"),
+            Optional(durableThrough, "not yet established"),
+            Optional(planAfterSeq, "not yet saved"),
+            Optional(replayAfterSeq, "not yet saved"),
+            Optional(liveAfterSeq, "not yet saved"),
+            exception);
+
+    /// <summary>Emits an existing recovery decision with the original exception and explicit missing-cursor descriptions.</summary>
+    [LoggerMessage(26, LogLevel.Warning, "Replay enumeration {ReplayEnumerationId} existing recovery action: {Reason}, phase {Phase}; in-memory processed {ProcessedThrough}, durable processed {DurableThrough}; saved checkpoint plan {PlanAfterSeq}, replay fallback {ReplayAfterSeq}, live {LiveAfterSeq}.")]
+    private static partial void EnumerationRecoveryCore(
+        ILogger logger,
+        Guid replayEnumerationId,
+        string reason,
+        string phase,
+        object processedThrough,
+        object durableThrough,
+        object planAfterSeq,
+        object replayAfterSeq,
+        object liveAfterSeq,
         Exception? exception);
+
+    /// <summary>Keeps present measurements typed while providing a readable description for absent ones.</summary>
+    /// <typeparam name="T">The numeric, timestamp, or duration measurement type.</typeparam>
+    /// <param name="value">The observed value, if available.</param>
+    /// <param name="description">The explanation of why no value is available in this context.</param>
+    /// <returns>The original boxed value, or its explicit absence description.</returns>
+    private static object Optional<T>(T? value, string description) where T : struct =>
+        value is T present ? present : description;
 }

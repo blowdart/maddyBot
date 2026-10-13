@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 
 using idunno.AtProto;
 using idunno.Bluesky.BotSdk.DataProviders;
@@ -115,6 +117,64 @@ public static class BotHosting
 
         return endpoints;
     }
+
+    /// <summary>Maps a Prometheus text endpoint backed by a read-only durable-state snapshot.</summary>
+    /// <param name="endpoints">The host endpoint builder.</param>
+    /// <returns>The endpoint builder for further mapping.</returns>
+    /// <remarks>
+    /// <para>This endpoint queries the database when scraped. Restrict access at the network boundary if operational
+    /// queue counts or replay progress should not be public. It is independent of memory-only liveness probes.</para>
+    /// </remarks>
+    public static IEndpointRouteBuilder MapBlueskyBotMetricsEndpoint(this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapGet(
+            "/metrics",
+            async context =>
+            {
+                IDatabaseProvider database = context.RequestServices.GetRequiredService<IDatabaseProvider>();
+                if (database is not IBotDatabaseDiagnostics diagnostics)
+                {
+                    await Results.Text(
+                        "The registered database provider does not support operational metrics.",
+                        statusCode: StatusCodes.Status501NotImplemented).ExecuteAsync(context);
+
+                    return;
+                }
+                BotOperationalSnapshot snapshot = await diagnostics.GetOperationalSnapshotAsync(context.RequestAborted);
+                StringBuilder content = new();
+                content.AppendLine("# HELP bluesky_bot_processed_through_sequence Highest sequence durably handled; not a timestamp or event count.");
+                content.AppendLine("# TYPE bluesky_bot_processed_through_sequence gauge");
+                content.Append("bluesky_bot_processed_through_sequence ")
+                    .AppendLine(snapshot.ProcessedThrough.ToString(CultureInfo.InvariantCulture));
+                content.AppendLine("# HELP bluesky_bot_actions Durable action rows by status, including terminal rows retained for pruning.");
+                content.AppendLine("# TYPE bluesky_bot_actions gauge");
+                AppendMetric(content, "pending", snapshot.PendingActions);
+                AppendMetric(content, "uncertain", snapshot.UncertainActions);
+                AppendMetric(content, "sent", snapshot.SentActions);
+                AppendMetric(content, "not-sent", snapshot.RejectedActions);
+                AppendMetric(content, "simulated", snapshot.SimulatedActions);
+                content.AppendLine("# HELP bluesky_bot_retry_due_actions Pending or uncertain actions whose saved retry time has arrived.");
+                content.AppendLine("# TYPE bluesky_bot_retry_due_actions gauge");
+                content.Append("bluesky_bot_retry_due_actions ")
+                    .AppendLine(snapshot.RetryDueActions.ToString(CultureInfo.InvariantCulture));
+
+                await Results.Text(
+                    content.ToString(),
+                    contentType: "text/plain; version=0.0.4; charset=utf-8").ExecuteAsync(context);
+            });
+
+        return endpoints;
+    }
+
+    /// <summary>Appends one static-label action metric using invariant numeric formatting.</summary>
+    /// <param name="content">The metrics response being assembled.</param>
+    /// <param name="status">The fixed action status label.</param>
+    /// <param name="value">The durable number of actions.</param>
+    private static void AppendMetric(StringBuilder content, string status, long value) =>
+        content.Append("bluesky_bot_actions{status=\"")
+            .Append(status)
+            .Append("\"} ")
+            .AppendLine(value.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>Configures timestamped console diagnostics for the bot runtime.</summary>
     /// <param name="logging">The host logging builder.</param>

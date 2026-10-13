@@ -1,10 +1,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 RUN apt-get update && apt-get install --no-install-recommends -y clang zlib1g-dev && apt-get clean
 WORKDIR /src
+ARG GITHUB_ACTIONS
+ARG GITHUB_REF
+ARG GITHUB_SHA
+ENV NBGV_GitEngine=Disabled \
+    GITHUB_ACTIONS=${GITHUB_ACTIONS} \
+    GITHUB_REF=${GITHUB_REF} \
+    GITHUB_SHA=${GITHUB_SHA}
 COPY global.json nuget.config Directory.Build.props Directory.Packages.props ./
+COPY version.json ./
 COPY src/MaddyBot/ src/MaddyBot/
 COPY src/idunno.Bluesky.BotSdk/ src/idunno.Bluesky.BotSdk/
-RUN dotnet restore src/MaddyBot/MaddyBot.csproj --locked-mode
+RUN dotnet restore src/MaddyBot/MaddyBot.csproj
 RUN dotnet publish src/MaddyBot/MaddyBot.csproj --configuration Release --runtime linux-x64 --no-restore --output /app
 
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS runtime
