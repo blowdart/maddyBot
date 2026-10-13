@@ -151,7 +151,7 @@ public static class BotHosting
                 AppendMetric(content, "pending", snapshot.PendingActions);
                 AppendMetric(content, "uncertain", snapshot.UncertainActions);
                 AppendMetric(content, "sent", snapshot.SentActions);
-                AppendMetric(content, "not_sent", snapshot.RejectedActions);
+                AppendMetric(content, "not-sent", snapshot.RejectedActions);
                 AppendMetric(content, "simulated", snapshot.SimulatedActions);
                 content.AppendLine("# HELP bluesky_bot_retry_due_actions Pending or uncertain actions whose saved retry time has arrived.");
                 content.AppendLine("# TYPE bluesky_bot_retry_due_actions gauge");
