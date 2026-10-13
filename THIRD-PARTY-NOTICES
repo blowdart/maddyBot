@@ -73,7 +73,7 @@ Microsoft.Extensions.Logging.Configuration               MIT
 Microsoft.Extensions.Options                             MIT
 Microsoft.Extensions.Options.ConfigurationExtensions     MIT
 Microsoft.Extensions.Primitives                          MIT
-Nerdbank.GitVersioning                                  MIT
+Nerdbank.GitVersioning                                   MIT
 Newtonsoft.Json                                          MIT
 System.Formats.Cbor                                      MIT
 xunit                                                    Apache-2.0
