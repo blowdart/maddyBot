@@ -22,6 +22,7 @@ public sealed class StatusPageTests
         Assert.StartsWith(statistics.Summary + "\n", page);
         Assert.Contains("Replay progress not yet known", page);
         Assert.DoesNotContain("behind", page);
+        Assert.EndsWith("\n", page);
     }
 
     /// <summary>Shows the observed backlog and UTC timestamps without claiming durability or connectivity.</summary>
@@ -36,6 +37,7 @@ public sealed class StatusPageTests
         Assert.Contains("Progress last observed: 2026-10-16 14:54:38Z (0h 0m 2s ago).", page);
         Assert.Contains("not a durable checkpoint or proof of connectivity or liveness", page);
         Assert.DoesNotContain("No recent handled progress", page);
+        Assert.EndsWith("\n", page);
     }
 
     /// <summary>Uses the SDK's exact thirty-second near-current-time threshold.</summary>
