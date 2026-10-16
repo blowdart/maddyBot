@@ -32,5 +32,10 @@ public sealed class BotRegistrationTests
         Assert.IsType<ExcludingReplyActionHandler>(
             Assert.Single(provider.GetServices<IBotActionHandler>(), handler => handler.Kind == "reply"));
         Assert.IsType<PostgreSqlDatabaseProvider>(provider.GetRequiredService<IDatabaseProvider>());
+        BotReplayProgress progress = provider.GetRequiredService<BotReplayProgress>();
+        Assert.Same(progress, provider.GetRequiredService<BotReplayProgress>());
+        Assert.Null(progress.Snapshot.WitnessedAt);
+        Assert.Null(progress.Snapshot.ObservedAt);
+        Assert.NotNull(provider.GetRequiredService<TimeProvider>());
     }
 }

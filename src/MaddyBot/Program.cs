@@ -122,8 +122,15 @@ await using WebApplication app = builder.Build();
 
 app.MapGet(
     "/",
-    (ActionStatistics statistics) =>
-    Results.Text(statistics.Summary, contentType: "text/plain", contentEncoding: Encoding.UTF8));
+    (ActionStatistics statistics, BotReplayProgress progress, TimeProvider time) =>
+    {
+        ReplayProgressSnapshot snapshot = progress.Snapshot;
+
+        return Results.Text(
+            StatusPage.Render(statistics, snapshot.WitnessedAt, snapshot.ObservedAt, time.GetUtcNow()),
+            contentType: "text/plain",
+            contentEncoding: Encoding.UTF8);
+    });
 
 // Probes only inspect memory. Calling a dependency here would make outages slow the probe
 // and could cause restart loops even while the workers are actively recovering.
