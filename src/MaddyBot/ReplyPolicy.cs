@@ -12,6 +12,8 @@ using idunno.AtProto.Repo;
 using idunno.Bluesky;
 using idunno.Bluesky.BotSdk;
 
+using Microsoft.Extensions.Logging;
+
 namespace MaddyBot;
 
 // This is the main customization point: decide whether a post matches and, if so, build
@@ -44,7 +46,7 @@ internal static partial class ReplyPolicy
     /// <param name="options">The sample's exclusions, watch phrases, and reply choices.</param>
     /// <returns>The complete fixed-key reply, or <see langword="null"/> when no reply is needed.</returns>
     /// <exception cref="InvalidDataException">Required v2 event identity or timing is missing.</exception>
-    /// <exception cref="JsonException">The source post is malformed.</exception>
+    /// <exception cref="MalformedEventException">The source post is missing, malformed, or violates SDK validation constraints.</exception>
     public static BotAction? Create(
         JetstreamEvent item,
         DateTimeOffset startedAt,
@@ -58,7 +60,7 @@ internal static partial class ReplyPolicy
     /// <param name="source">When a reply is returned, contains its source post's URI and CID; otherwise, <see langword="null"/>.</param>
     /// <returns>The complete fixed-key reply, or <see langword="null"/> when no reply is needed.</returns>
     /// <exception cref="InvalidDataException">Required v2 event identity or timing is missing.</exception>
-    /// <exception cref="JsonException">The source post is malformed.</exception>
+    /// <exception cref="MalformedEventException">The source post is missing, malformed, or violates SDK validation constraints.</exception>
     internal static BotAction? Create(
         JetstreamEvent item,
         DateTimeOffset startedAt,
@@ -86,9 +88,20 @@ internal static partial class ReplyPolicy
             return null;
         }
 
-        JsonElement record = commit.Commit.Record ?? throw new JsonException("Create event has no record.");
-        Post post = record.Deserialize(PostMetadata)
-            ?? throw new JsonException("Create event has a null post.");
+        Post post;
+
+        try
+        {
+            JsonElement record = commit.Commit.Record ?? throw new JsonException("Create event has no record.");
+            post = record.Deserialize(PostMetadata)
+                ?? throw new JsonException("Create event has a null post.");
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException)
+        {
+            // Post validates lexicon constraints in its constructor. Translate those invalid
+            // record failures so the SDK can audit and skip this individual event.
+            throw new MalformedEventException("Create event contains an invalid post.", exception);
+        }
 
         // CUSTOMIZE DETECTION: replace this phrase check for more complex matching rules.
         // The source Post is available here. Keep the eligibility checks above unless you
@@ -136,15 +149,44 @@ internal static partial class ReplyPolicy
 
 /// <summary>Adapts the sample's reply to the SDK's atomic action-batch contract.</summary>
 /// <param name="options">The configured sample matching and reply rules.</param>
-internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
+/// <param name="logger">The logger for malformed source records.</param>
+internal sealed partial class MaddyReplyPolicy(
+    BotOptions options,
+    ILogger<MaddyReplyPolicy> logger) : IBotPolicy
 {
     /// <inheritdoc/>
     public IReadOnlyList<BotAction> Evaluate(
         JetstreamEvent item,
         DateTimeOffset startedAt)
     {
-        BotAction? reply = ReplyPolicy.Create(item, startedAt, options);
+        BotAction? reply;
+
+        try
+        {
+            reply = ReplyPolicy.Create(item, startedAt, options);
+        }
+        catch (MalformedEventException exception) when (item is JetstreamCommitEvent commit)
+        {
+            InvalidSourcePost(
+                logger,
+                $"at://{commit.Did}/{commit.Commit.Collection}/{commit.Commit.RKey}",
+                exception);
+            throw;
+        }
 
         return reply is null ? [] : [reply];
     }
+
+    /// <summary>Logs the source record identity while leaving skip auditing and progress to the SDK.</summary>
+    /// <param name="logger">The policy logger.</param>
+    /// <param name="sourceUri">The invalid source record's AT URI.</param>
+    /// <param name="exception">The source deserialization failure.</param>
+    [LoggerMessage(
+        EventId = 1,
+        Level = LogLevel.Warning,
+        Message = "Source post {SourceUri} could not be deserialized; reporting malformed event to the reader.")]
+    private static partial void InvalidSourcePost(
+        ILogger logger,
+        string sourceUri,
+        Exception exception);
 }
