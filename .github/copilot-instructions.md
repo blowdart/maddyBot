@@ -5,9 +5,10 @@ watcher and reply bot with `idunno.AtProto` and `idunno.Bluesky`. It reads Jetst
 archive/live replay and stores progress and reply work in PostgreSQL through
 Npgsql and parameterized SQL. There is no Entity Framework.
 
-`src\idunno.Bluesky.BotSdk` is the reusable durable-action runtime. It supports
+The published `idunno.Bluesky.BotSdk` package is the durable-action runtime. It supports
 replies, likes, reposts, bookmarks, author membership in curation lists, and
-DI-registered custom action handlers. MaddyBot remains a reply-only example.
+DI-registered custom action handlers. MaddyBot remains a reply-only consumer;
+runtime source and internal tests belong upstream in `blowdart/idunno.Bluesky`.
 
 These instructions are adapted from `blowdart/idunno.Bluesky`'s
 `version/v8.0.0` branch. SDK-specific endpoint generation, package publishing,
@@ -18,13 +19,15 @@ multi-target testing and public API baseline rules do not apply to this app.
 * Use the SDK pinned in `global.json` and `MaddyBot.slnx`.
 * Restore: `dotnet restore MaddyBot.slnx`.
 * Build: `dotnet build MaddyBot.slnx -c Debug --no-incremental`.
-* Tests use **xUnit v2 and VSTest**, not Microsoft.Testing.Platform or xUnit v3.
-* Run tests: `dotnet test MaddyBot.slnx`.
-* Filter tests with VSTest syntax, for example
-  `dotnet test MaddyBot.slnx --filter FullyQualifiedName~PolicyTests`.
-* PostgreSQL tests require `MADDYBOT_TEST_CONNECTION`; use a disposable database
-  and verify tests actually ran rather than accepting skips as database coverage.
-  Never alter a running user's database, schema, checkpoint or container to test changes.
+* Tests use **xUnit v3 and Microsoft.Testing.Platform v2**. `global.json` selects
+  MTP for `dotnet test`; the test project is an executable with the MTP runner.
+* Run tests: `dotnet test --solution MaddyBot.slnx`.
+* Filter with `--filter-class MaddyBot.Tests.PolicyTests`, not VSTest's `--filter`.
+* CI uses `--report-xunit-trx --report-xunit-trx-filename tests.trx` for the
+  existing TRX publisher and `--fail-skips on` to reject incomplete runs.
+* Sample tests do not need a database. Provider and database migration coverage
+  belongs to the upstream Bot SDK project. Never alter a running user's database,
+  schema, checkpoint or container to test changes.
 * Warnings are errors. Check formatting with
   `dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore`.
   Use the whitespace formatter for formatting-only fixes; do not blindly apply
@@ -82,9 +85,12 @@ that selects the active process during overlapping deployments.
   `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`.
 * Richer detection and reply construction belong in the marked sections of
   `ReplyPolicy.Create()`. Keep remote writes out of the reader/policy.
-* `IBotPolicy` returns complete `BotAction` batches without remote writes.
+* `IBotPolicy.Evaluate()` returns complete `BotAction` batches without remote writes.
   `ActionDispatcher` uses versioned `IBotActionHandler` implementations to perform
   actions and reconcile uncertain writes. Preserve queued payload-version support.
+* `ExcludingReplyActionHandler` wraps the public packaged reply handler to keep
+  sample-specific queued author exclusions. Replace, rather than duplicate, the
+  built-in reply registration. Always reconcile uncertain writes before rejection.
 * Keep the README customization guide and code signposts synchronized. Remind
   people cloning the sample to change `httpUserAgent` in `Program.cs`.
 * Explain the flow and decisions in plain language. Define terms such as lease
@@ -95,8 +101,9 @@ that selects the active process during overlapping deployments.
 
 ## Serialization, dependencies and configuration
 
-* Reuse SDK-generated type metadata via `BotJson`; use `BotJsonContext` for
-  application-owned types. Do not use reflection-based JSON overloads in the app.
+* Use `BlueskyJsonSerializerOptions` for SDK-owned JSON types. Runtime JSON
+  helpers are internal to the package; do not copy them or regenerate metadata
+  for external DTOs. Do not use reflection-based JSON overloads in the app.
 * Preserve stored request/checkpoint/credential JSON and public health response
   shapes. Add compatibility tests when changing serialization.
 * Configuration binding is source-generated. Preserve AOT/trimming compatibility;
@@ -104,8 +111,7 @@ that selects the active process during overlapping deployments.
 * Versions are centralized in `Directory.Packages.props`. Verify an exact SDK
   prerelease exists in the public MyGet feed configured in `nuget.config` before
   updating; do not guess versions or assume a PR commit is published.
-* Nerdbank.GitVersioning is scoped to the MaddyBot project. Keep its package
-  reference out of the reusable SDK project; version and release intent belong
+* Nerdbank.GitVersioning is scoped to the MaddyBot project; version and release intent belong
   in the root `version.json` and do not require Git tags.
 * Restore dependencies after version changes. Review replay compatibility and
   SDK-specific generation-mismatch classification on upgrades.
@@ -151,15 +157,14 @@ When checking line endings locally, use `git ls-files --eol` and
 
 ## Testing and checkin conventions
 
-* Follow nearby xUnit v2 tests and fake remote/logging patterns; no real Bluesky writes.
+* Follow nearby xUnit v3 tests and fake remote/logging patterns; no real Bluesky writes.
 * Do not add `// Arrange` / `// Act` / `// Assert` comments.
-* Prefer theories for similar cases. Add matching examples to `PolicyTests`,
-  stored-format cases to `BotJsonTests`, diagnostics cases to `ReplayDiagnosticsTests`,
-  and shared durable processing/recovery cases to `RelationalProviderTests`.
-  Keep SQLite-only connection rules in `SqliteProviderTests`, and durable action
-  sending/reconciliation cases in `RelationalProviderActionTests`.
+* Prefer theories for similar cases. Add sample matching/configuration examples to
+  `PolicyTests`, queued exclusion cases to `ReplyHandlerTests`, and sample
+  service-registration cases to `BotRegistrationTests`. The SDK's provider and internal storage,
+  replay, serialization, and action tests live upstream, not in this consumer.
 * Before committing code, require a clean non-incremental Debug solution build
-  and full test suite, including actual isolated PostgreSQL coverage. Filtered
+  and full sample test suite. Filtered
   tests and incremental builds are iteration tools, not the final commit gate.
 * Commit only when requested, use a feature branch, preserve unrelated changes,
   and use short imperative commit messages.

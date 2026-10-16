@@ -20,6 +20,8 @@ Component                                                License
 idunno.AtProto                                           MIT
 idunno.AtProto.Types                                     MIT
 idunno.Bluesky                                           MIT
+idunno.Bluesky.BotSdk                                    MIT
+idunno.Bluesky.BotSdk.PostgreSQL                         MIT
 idunno.Security.Ssrf                                     MIT
 Npgsql                                                   PostgreSQL
 System.CommandLine                                       MIT
@@ -44,12 +46,15 @@ Additional test and build dependencies
 --------------------------------------
 
 Component                                                License
+Microsoft.ApplicationInsights                            MIT
 Microsoft.AspNetCore.WebUtilities                        MIT
+Microsoft.Bcl.AsyncInterfaces                            MIT
 Microsoft.Net.Http.Headers                               MIT
-Microsoft.CodeCoverage                                   MIT
-Microsoft.NET.Test.Sdk                                   MIT
-Microsoft.TestPlatform.ObjectModel                       MIT
-Microsoft.TestPlatform.TestHost                          MIT
+Microsoft.Testing.Extensions.Telemetry                   MIT
+Microsoft.Testing.Extensions.TrxReport.Abstractions      MIT
+Microsoft.Testing.Platform                               MIT
+Microsoft.Testing.Platform.MSBuild                       MIT
+Microsoft.Win32.Registry                                 MIT
 Microsoft.DotNet.ILCompiler                              MIT
 Microsoft.NET.ILLink.Tasks                               MIT
 runtime.linux-x64.Microsoft.DotNet.ILCompiler            MIT
@@ -74,16 +79,15 @@ Microsoft.Extensions.Options                             MIT
 Microsoft.Extensions.Options.ConfigurationExtensions     MIT
 Microsoft.Extensions.Primitives                          MIT
 Nerdbank.GitVersioning                                   MIT
-Newtonsoft.Json                                          MIT
 System.Formats.Cbor                                      MIT
-xunit                                                    Apache-2.0
-xunit.abstractions                                       Apache-2.0
 xunit.analyzers                                          Apache-2.0
-xunit.assert                                             Apache-2.0
-xunit.core                                               Apache-2.0
-xunit.extensibility.core                                 Apache-2.0
-xunit.extensibility.execution                            Apache-2.0
-xunit.runner.visualstudio                                Apache-2.0
+xunit.v3.assert                                          Apache-2.0
+xunit.v3.common                                          Apache-2.0
+xunit.v3.core.mtp-v2                                     Apache-2.0
+xunit.v3.extensibility.core                              Apache-2.0
+xunit.v3.mtp-v2                                          Apache-2.0
+xunit.v3.runner.common                                   Apache-2.0
+xunit.v3.runner.inproc.console                           Apache-2.0
 
 The additional Microsoft.Extensions packages above occur in the test dependency
 graph; the application also uses Microsoft.Extensions and ASP.NET Core through
@@ -113,7 +117,8 @@ Microsoft .NET, ASP.NET Core, IdentityModel, CommandLine and test tooling:
   https://github.com/dotnet/aspnetcore
   https://github.com/dotnet/extensions
   https://github.com/dotnet/command-line-api
-  https://github.com/microsoft/vstest
+  https://github.com/microsoft/testfx
+  https://github.com/microsoft/ApplicationInsights-dotnet
   https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet
   MIT License (below).
   Preserve the original license and THIRD-PARTY-NOTICES files supplied by the
@@ -160,17 +165,10 @@ ZstdSharp.Port:
   attribution are also retained below.
   https://github.com/facebook/zstd
 
-Newtonsoft.Json (test dependency):
-  Copyright (c) 2007 James Newton-King.
-  https://www.newtonsoft.com/json
-  MIT License (below).
-
 xUnit.net and its runner/analyzers (test dependencies):
   Authors include James Newkirk, Brad Wilson and Marcin Dziewialtowski.
   https://github.com/xunit/xunit
-  https://github.com/xunit/abstractions.xunit
   https://github.com/xunit/xunit.analyzers
-  https://github.com/xunit/visualstudio.xunit
   Apache License, Version 2.0 (below).
 
 Container distributions

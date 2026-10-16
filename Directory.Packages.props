@@ -5,13 +5,10 @@
   <ItemGroup>
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.10.94" />
-    <PackageVersion Include="idunno.AtProto" Version="[8.0.0-prerelease.ga282f8f4ca]" />
-    <PackageVersion Include="idunno.Bluesky" Version="[8.0.0-prerelease.ga282f8f4ca]" />
-    <PackageVersion Include="Npgsql" Version="10.0.3" />
-    <PackageVersion Include="MySqlConnector" Version="2.6.2" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="idunno.AtProto" Version="[8.0.0-prerelease.g699396cf24]" />
+    <PackageVersion Include="idunno.Bluesky" Version="[8.0.0-prerelease.g699396cf24]" />
+    <PackageVersion Include="idunno.Bluesky.BotSdk" Version="[8.0.0-prerelease.g699396cf24]" />
+    <PackageVersion Include="idunno.Bluesky.BotSdk.PostgreSQL" Version="[8.0.0-prerelease.g699396cf24]" />
+    <PackageVersion Include="xunit.v3.mtp-v2" Version="3.2.2" />
   </ItemGroup>
 </Project>

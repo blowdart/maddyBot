@@ -2,14 +2,12 @@
   <PropertyGroup>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="..\..\src\MaddyBot\appsettings.json" Link="bot-appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <PackageReference Include="xunit.v3.mtp-v2" />
     <ProjectReference Include="..\..\src\MaddyBot\MaddyBot.csproj" />
   </ItemGroup>
 </Project>

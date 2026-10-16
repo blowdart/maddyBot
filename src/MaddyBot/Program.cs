@@ -73,16 +73,22 @@ BotOptions options = builder.Configuration.GetRequiredSection("Bot").Get<BotOpti
 // Reject unsafe configuration at startup, rather than halfway through consuming durable work.
 options.Validate();
 
-string connectionString = BotOptions.DatabaseConnectionString(
+string connectionString = PostgreSqlBotStorageExtensions.CreateConnectionString(
     builder.Configuration,
     builder.Environment.IsDevelopment(),
     applicationName: "maddyBot");
 
 BotHosting.ConfigureConsoleLogging(builder.Logging);
 
-builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(new ActionStatistics(startedAt));
-builder.Services.AddPostgreSqlBotStorage(connectionString, options.DatabaseCaCertificate);
+// Register the same packaged runtime and storage for doctor mode and normal hosting.
+// CUSTOMIZE HTTP IDENTITY: change "maddyBot/1.0" to your bot's name and version,
+// not its account handle or credentials.
+builder.Services.AddMaddyBot(
+    options,
+    httpUserAgent: "maddyBot/1.0",
+    connectionString,
+    lookbackCutoff: cutoff);
 
 if (parsed.GetValue(doctorOption))
 {
@@ -111,13 +117,6 @@ if (parsed.GetValue(doctorOption))
 // chosen process reads or sends during deployment overlap. ReaderWorker saves complete replies
 // and replay progress; SenderWorker sends them later and reconciles uncertain writes.
 // MaddyReplyPolicy is the sample-specific choice of which posts deserve which replies.
-
-// CUSTOMIZE HTTP IDENTITY: change "maddyBot/1.0" to your bot's name and version.
-// This identifies the application, not the bot account or its credentials.
-builder.Services.AddBlueskyBot<MaddyReplyPolicy>(
-    options,
-    httpUserAgent: "maddyBot/1.0",
-    lookbackCutoff: cutoff);
 
 await using WebApplication app = builder.Build();
 

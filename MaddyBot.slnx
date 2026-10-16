@@ -30,15 +30,13 @@
     <File Path=".github\workflows\ci.yml" />
     <File Path=".github\workflows\test-results.yml" />
   </Folder>
-  <Folder Name="/Documentation/">
-    <File Path="Documentation\BotSdk.md" />
-    <File Path="Documentation\README.md" />
-  </Folder>
   <Folder Name="/src/">
-    <Project Path="src\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj" />
     <Project Path="src\MaddyBot\MaddyBot.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests\MaddyBot.Tests\MaddyBot.Tests.csproj" />
+  </Folder>
+  <Folder Name="/scripts/">
+    <File Path="scripts\create-postgresql.ps1" />
   </Folder>
 </Solution>

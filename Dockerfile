@@ -11,7 +11,6 @@ ENV NBGV_GitEngine=Disabled \
 COPY global.json nuget.config Directory.Build.props Directory.Packages.props ./
 COPY version.json ./
 COPY src/MaddyBot/ src/MaddyBot/
-COPY src/idunno.Bluesky.BotSdk/ src/idunno.Bluesky.BotSdk/
 RUN dotnet restore src/MaddyBot/MaddyBot.csproj
 RUN dotnet publish src/MaddyBot/MaddyBot.csproj --configuration Release --runtime linux-x64 --no-restore --output /app
 

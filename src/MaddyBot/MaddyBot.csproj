@@ -11,7 +11,8 @@
   <ItemGroup>
     <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="All" />
     <PackageReference Include="System.CommandLine" />
-    <ProjectReference Include="..\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj" />
+    <PackageReference Include="idunno.Bluesky.BotSdk" />
+    <PackageReference Include="idunno.Bluesky.BotSdk.PostgreSQL" />
     <InternalsVisibleTo Include="MaddyBot.Tests" />
   </ItemGroup>
 </Project>
