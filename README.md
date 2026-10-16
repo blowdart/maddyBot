@@ -256,7 +256,8 @@ $connectionString = .\scripts\create-mysql.ps1 -HostType Docker
 
 This creates a MySQL 8.4 container on `127.0.0.1:33060` with the named volume
 `maddybot-mysql84`, and prints a connection string containing a generated
-password. Treat it as a secret. The MaddyBot sample itself is currently wired
+password. It requires TLS for MySQL 8.4 password authentication. Treat the
+connection string as a secret. The MaddyBot sample itself is currently wired
 to PostgreSQL; creating this container alone does not switch the sample to MySQL.
 
 Next, add your bot's settings. Configuration comes from `appsettings.json`,

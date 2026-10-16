@@ -115,7 +115,7 @@ do {
     if ($status -eq 'healthy') {
         Write-Host "MySQL $MySqlVersion is ready on 127.0.0.1:$Port. Database/user: maddybot. Named volume: $VolumeName."
         Write-Warning 'The following connection string contains a password. Store it in user secrets; do not commit or share it.'
-        Write-Output "Server=127.0.0.1;Port=$Port;Database=maddybot;User ID=maddybot;Password=$password;SslMode=None"
+        Write-Output "Server=127.0.0.1;Port=$Port;Database=maddybot;User ID=maddybot;Password=$password;SslMode=Required"
         return
     }
     if ($status -eq 'unhealthy') {
