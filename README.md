@@ -247,6 +247,18 @@ Use `wslc container stop` / `wslc container start` for WSL containers.
 Container environment inspection can reveal the database password; use only a
 development password on a trusted machine. Never reuse production credentials.
 
+The SDK also has a MySQL 8.4+ storage provider. To create a local MySQL
+container for a project configured to use that provider, run:
+
+```powershell
+$connectionString = .\scripts\create-mysql.ps1 -HostType Docker
+```
+
+This creates a MySQL 8.4 container on `127.0.0.1:33060` with the named volume
+`maddybot-mysql84`, and prints a connection string containing a generated
+password. Treat it as a secret. The MaddyBot sample itself is currently wired
+to PostgreSQL; creating this container alone does not switch the sample to MySQL.
+
 Next, add your bot's settings. Configuration comes from `appsettings.json`,
 .NET user secrets in Development, and then environment variables (last wins).
 The project already has a user-secrets ID:
@@ -393,7 +405,9 @@ Here are the rules the sample and SDK use to do that.
 Replies point back to the source post's URI/CID as their parent. For a reply
 within a thread, they keep the source's `Reply.Root`; for a top-level post, the
 parent is also the root. They come from the account in `Bot:Did` / `Bot:Handle`.
-If the login belongs to a different account, startup fails.
+If those settings identify a different account than the login, authentication
+fails when the sender needs to process queued work. An idle startup by itself
+doesn't verify the account.
 
 The reader transaction inserts all actions for a matching event and advances the processed-through
 boundary together. Repeated events at or below that boundary are consumed without
