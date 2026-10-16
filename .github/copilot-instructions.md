@@ -109,7 +109,7 @@ that selects the active process during overlapping deployments.
 * Configuration binding is source-generated. Preserve AOT/trimming compatibility;
   do not suppress warnings as a substitute for a correct implementation.
 * Versions are centralized in `Directory.Packages.props`. Verify an exact SDK
-  prerelease exists in the public MyGet feed configured in `nuget.config` before
+  version exists on nuget.org, the source configured in `nuget.config`, before
   updating; do not guess versions or assume a PR commit is published.
 * Nerdbank.GitVersioning is scoped to the MaddyBot project; version and release intent belong
   in the root `version.json` and do not require Git tags.

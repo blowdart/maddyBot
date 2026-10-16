@@ -1,15 +1,8 @@
 version: 2
 
-registries:
-  blowdart-myget:
-    type: nuget-feed
-    url: https://www.myget.org/F/blowdart/api/v3/index.json
-
 updates:
   - package-ecosystem: nuget
     directory: /
-    registries:
-      - blowdart-myget
     schedule:
       interval: weekly
     cooldown:

@@ -24,7 +24,7 @@ without Entity Framework.
 **New here?** Follow [Local development](#local-development) for a safe, no-write
 run of the sample, then [Make this sample your own](#make-this-sample-your-own).
 For a step-by-step SDK host, all five built-in actions, and custom actions, see
-the [upstream Bot SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/durableBotSdk.md).
+the [upstream Bot SDK guide](https://bluesky.idunno.dev/docs/bots/durableBotSdk.html).
 
 ## Bot SDK and sample
 
@@ -63,10 +63,10 @@ thread references here, then let retries reuse the saved content and record key.
 `AddBlueskyBot` automatically registers handlers for **replies, likes, reposts,
 private bookmarks, and adding the source author to an existing bot-owned curation
 list**. Application-defined actions use `BotActions.Create<TPayload>` and a
-singleton `IBotActionHandler`; see the [upstream guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/customBotActions.md).
+singleton `IBotActionHandler`; see the [upstream guide](https://bluesky.idunno.dev/docs/bots/customBotActions.html).
 MaddyBot intentionally creates only a reply for each eligible match. For a new
 host, alternative storage providers, or custom provider contracts, follow the
-[upstream SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/durableBotSdk.md).
+[upstream SDK guide](https://bluesky.idunno.dev/docs/bots/durableBotSdk.html).
 
 ## Make this sample your own
 
@@ -89,8 +89,8 @@ in the code:
 | Phrases, reply texts, or authors to ignore | `Bot:WatchPhrases`, `Bot:Replies`, and `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`. See [Watch phrases, replies, and exclusions](#watch-phrases-replies-and-exclusions) for configuration overrides. |
 | How a post counts as a match | The **CUSTOMIZE DETECTION** block in `src\MaddyBot\ReplyPolicy.cs`, inside `ReplyPolicy.Create()`. `NormalizePhrase()` defines the accepted separators and the `.NET`/`dotnet` alias; change those rules if they do not suit your bot. |
 | How to build a reply after a match, such as choosing text from the source post | The **CUSTOMIZE REPLY** block in `ReplyPolicy.Create()`, where `Post reply` is constructed. This runs before the reply is saved, not on each send attempt. |
-| Add likes, reposts, bookmarks, or author-list membership | Adapt the policy to return more `BotAction` intents. See the [upstream SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/durableBotSdk.md). No dispatcher changes are needed for built-in actions. |
-| Add an application-defined remote action | Implement `IBotActionHandler` and use `BotActions.Create<TPayload>`; see [Custom actions](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/customBotActions.md). Runtime sending and recovery remain package-owned. |
+| Add likes, reposts, bookmarks, or author-list membership | Adapt the policy to return more `BotAction` intents. See the [upstream SDK guide](https://bluesky.idunno.dev/docs/bots/durableBotSdk.html). No dispatcher changes are needed for built-in actions. |
+| Add an application-defined remote action | Implement `IBotActionHandler` and use `BotActions.Create<TPayload>`; see [Custom actions](https://bluesky.idunno.dev/docs/bots/customBotActions.html). Runtime sending and recovery remain package-owned. |
 | The HTTP application identity | The **CUSTOMIZE HTTP IDENTITY** comment in `src\MaddyBot\Program.cs`, above `httpUserAgent`. |
 
 The basic flow is **Jetstream -> ReaderWorker -> saved actions in a database ->
@@ -142,14 +142,11 @@ dotnet test --solution MaddyBot.slnx --no-build
 
 You'll find package versions in `Directory.Packages.props` and feed settings
 in `nuget.config`. The directly referenced idunno
-packages are pinned to `8.0.0-prerelease.g237e4843b8`, corresponding to
-[`237e4843b8`](https://github.com/blowdart/idunno.Bluesky/commit/237e4843b8).
+packages are pinned to stable `8.0.0` from nuget.org.
 The application references the core BotSdk and PostgreSQL provider packages.
 There is no SQLite dependency or separate ASP.NET Core BotSdk package.
-These are NuGet packages published to the public MyGet feed at
-`https://www.myget.org/F/blowdart/api/v3/index.json`, not nuget.org for this pinned
-prerelease. The committed `nuget.config` maps idunno packages to that feed;
-other dependencies come from nuget.org. Dependabot uses the same source.
+The committed `nuget.config` uses nuget.org for all dependencies.
+Dependabot uses the same source.
 This repository does not maintain per-project package lock files.
 
 To upgrade, edit `Directory.Packages.props` and keep the directly referenced
@@ -697,7 +694,7 @@ passing tests.
 
 [Dependabot](.github/dependabot.yml) checks NuGet packages, SHA-pinned GitHub
 Actions, and Docker base images weekly and opens update pull requests. The
-NuGet configuration includes the public MyGet prerelease feed and groups the
+NuGet configuration uses nuget.org and groups the
 related idunno SDK packages into one update. Version updates in all three ecosystems have a
 seven-day cooldown after publication, allowing time for newly published malicious
 releases to be detected. This reduces risk but does not guarantee package safety;

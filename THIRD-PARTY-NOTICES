@@ -101,6 +101,8 @@ idunno SDK and SSRF libraries:
   Copyright (c) 2026 Barry Dorrans (SSRF package).
   All rights reserved.
   https://github.com/blowdart/idunno.Bluesky
+  SDK dependency and bundled-source notices:
+  https://github.com/blowdart/idunno.Bluesky/blob/b3e7e86b34ee7775a8425fe04375806c1eb15073/THIRD-PARTY-NOTICES.txt
   https://github.com/blowdart/idunnoSecuritySsrf
   MIT License (below).
   The copied/adapted Copilot instruction files, .editorconfig and SSH signing
@@ -138,7 +140,7 @@ DnsClient:
   Apache License, Version 2.0 (below).
 
 Duende IdentityModel and OidcClient:
-  Author: Duende Software.
+  Copyright Duende Software.
   https://github.com/duendesoftware/foss
   Apache License, Version 2.0 (below). This notice concerns the listed
   open-source client packages, not Duende IdentityServer.
