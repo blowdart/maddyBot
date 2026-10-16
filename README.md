@@ -1,5 +1,8 @@
 # maddyBot
 
+[![GitHub License](https://img.shields.io/github/license/blowdart/maddyBot)](https://github.com/blowdart/maddyBot/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/blowdart/maddyBot)](https://github.com/blowdart/maddyBot/commits/main/)
+
 A small Bluesky bot with strong feelings about naming things. It watches
 Jetstream v2 for posts mentioning `.NET Aspire` and replies:
 
