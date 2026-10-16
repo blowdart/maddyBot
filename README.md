@@ -640,18 +640,20 @@ DigitalOcean app `8c1c1576-3e22-4840-9def-f729526a3ad4` using images in
 `registry.digitalocean.com/idunno-registry/maddybot`. It does not create an app,
 database, user, or VPC, or replace the live app configuration with a checked-in spec.
 
-Before the first release, create a GitHub environment named **`production`** in
+Before the first release, create a GitHub environment named **`release`** in
 repository Settings -> Environments:
 
 | Setting | Value |
 |---|---|
 | Deployment branches | Only `main`. |
-| Environment variable `DIGITALOCEAN_WORKER_NAME` | The exact existing worker component name from the live App Spec, not the app name. |
+| Environment variable `DIGITALOCEAN_WORKER_NAME` | `maddybot`, the existing worker component name from the live App Spec. |
 | Environment secret `DIGITALOCEAN_ACCESS_TOKEN` | A DigitalOcean token authorized to read/update the app, inspect its deployments, and generate read/write registry credentials. |
 | Required reviewers | Configure a production approval if available for the repository's GitHub plan. |
 
 Keep database credentials, the bot app password, archive key, and encryption key
 in App Platform's existing runtime secrets; do not copy them into GitHub.
+Store the DigitalOcean token as a secret on the `release` environment, not as a
+repository-wide secret. The release job selects that environment to access it.
 Restrict access to the DigitalOcean token and use an expiry/rotation policy.
 The worker must already use the `maddybot` DOCR image, run one instance without
 autoscaling, have liveness checks configured, and have automatic image-push
