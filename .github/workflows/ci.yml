@@ -34,23 +34,10 @@ jobs:
     defaults:
       run:
         shell: pwsh
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: maddybot_tests
-          POSTGRES_USER: maddybot_test
-          POSTGRES_PASSWORD: ci-only-postgres
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd "pg_isready --host 127.0.0.1 --username maddybot_test --dbname maddybot_tests"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 30
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
+      TESTINGPLATFORM_TELEMETRY_OPTOUT: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -89,9 +76,7 @@ jobs:
           dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore
       - name: Run all tests
         id: test
-        env:
-          MADDYBOT_TEST_CONNECTION: "Host=127.0.0.1;Port=${{ job.services.postgres.ports['5432'] }};Database=maddybot_tests;Username=maddybot_test;Password=ci-only-postgres;SSL Mode=Disable"
-        run: dotnet test MaddyBot.slnx --configuration Debug --no-build --no-restore --results-directory TestResults --logger "trx;LogFileName=tests.trx"
+        run: dotnet test --solution MaddyBot.slnx --configuration Debug --no-build --no-restore --results-directory TestResults --report-xunit-trx --report-xunit-trx-filename tests.trx --fail-skips on
       - name: Verify tests ran without skips
         if: ${{ always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
         run: |
@@ -102,14 +87,9 @@ jobs:
           [xml] $results = Get-Content -LiteralPath $files[0].FullName -Raw
           $counters = $results.SelectSingleNode("/*[local-name()='TestRun']/*[local-name()='ResultSummary']/*[local-name()='Counters']")
           if ($null -eq $counters -or [int] $counters.total -le 0 -or [int] $counters.passed -ne [int] $counters.total) {
-            throw 'Every test must run and pass; failed or skipped tests are not accepted as database coverage.'
+            throw 'Every test must run and pass; failed or skipped tests are not accepted.'
           }
-          "$($counters.passed) tests passed with zero skips against isolated PostgreSQL and SQLite package storage." >> $env:GITHUB_STEP_SUMMARY
-      - name: Preserve database diagnostics
-        if: ${{ failure() }}
-        run: |
-          New-Item -ItemType Directory -Path TestResults -Force | Out-Null
-          docker logs '${{ job.services.postgres.id }}' *> TestResults/postgres.log
+          "$($counters.passed) sample tests passed with zero skips. SDK provider tests are maintained upstream." >> $env:GITHUB_STEP_SUMMARY
       - name: Upload test results and diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -23,7 +23,7 @@ SQL; there is no Entity Framework.
 **New here?** Follow [Local development](#local-development) for a safe, no-write
 run of the sample, then [Make this sample your own](#make-this-sample-your-own).
 For a step-by-step SDK host, all five built-in actions, and custom actions, see
-the [Bot SDK guide](Documentation/BotSdk.md).
+the [upstream Bot SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/durableBotSdk.md).
 
 ## Bot SDK and sample
 
@@ -81,7 +81,7 @@ thread references before saving; retries reuse the saved payload and fixed key.
 `AddBlueskyBot` automatically registers handlers for **replies, likes, reposts,
 private bookmarks, and adding the source author to an existing bot-owned curation
 list**. Application-defined actions use `BotActions.Create<TPayload>` and a
-singleton `IBotActionHandler`; see the [guide](Documentation/BotSdk.md).
+singleton `IBotActionHandler`; see the [upstream guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/customBotActions.md).
 MaddyBot intentionally creates only a reply for each eligible match. Package
 versions are centralized in `Directory.Packages.props`; this repository does not
 maintain per-project package lock files.
@@ -139,9 +139,9 @@ rejection of one does not roll back actions already completed.
 
 Add examples for your new matching/reply rules in
 `tests\MaddyBot.Tests\PolicyTests.cs`. Queued exclusions are covered in
-`ReplyHandlerTests.cs`; public package wiring and persisted donor database
-compatibility are covered in `PackageIntegrationTests.cs` using PostgreSQL and
-SQLite. Internal runtime tests now live upstream with the SDK. Changed settings apply on
+`ReplyHandlerTests.cs`; sample service registration is covered in
+`BotRegistrationTests.cs` without opening a database. Provider and internal
+runtime tests live upstream with the SDK. Changed settings apply on
 restart; they do not rewrite already queued replies or revisit consumed posts.
 Use separate databases for development and production, rather than clearing
 stored progress to test a new rule. The legacy database table name `reply_work`
@@ -155,17 +155,19 @@ Install the .NET 10 SDK and Docker, then:
 ```powershell
 dotnet restore MaddyBot.slnx
 dotnet build MaddyBot.slnx --no-restore
-dotnet test MaddyBot.slnx --no-build
+dotnet test --solution MaddyBot.slnx --no-build
 ```
 
 Package versions are centralized in `Directory.Packages.props`; feed configuration
 and package-source mapping are centralized in `nuget.config`. Direct idunno
 packages are pinned to `8.0.0-prerelease.g699396cf24`, corresponding to
 [`699396cf24f84dc44b393196db18a73646fe1fef`](https://github.com/blowdart/idunno.Bluesky/commit/699396cf24f84dc44b393196db18a73646fe1fef).
-The application references the core BotSdk and PostgreSQL provider packages;
-tests also reference SQLite. There is no separate ASP.NET Core BotSdk package.
-For an existing deployment, follow [database migration](Documentation/BotSdk.md#migrate-an-existing-maddybot-database):
-stop old instances and back up the database before first startup; do not reset it.
+The application references the core BotSdk and PostgreSQL provider packages.
+There is no SQLite dependency or separate ASP.NET Core BotSdk package.
+For an existing deployment, stop all old instances and back up the database and
+credential encryption key before first packaged startup. Reuse the same database,
+identity, Jetstream service, developer mode, and CA settings; do not reset durable
+state. The packaged provider migrates legacy tables in place.
 New replies receive a lexicon-valid TID from `TimestampIdentifier.Next()` before
 enqueue; generic keys such as `maddy-<GUID>` are not valid post record keys.
 Existing queued work keeps its saved key and is never silently re-keyed.
@@ -649,13 +651,13 @@ storage.
 The [CI workflow](.github/workflows/ci.yml) runs on pull requests and pushes to
 `main`, and can also be started manually. It restores dependencies, builds
 the Debug solution using full Git history for version calculation, checks
-formatting, and runs the full suite against disposable
-PostgreSQL 16 plus isolated SQLite files. Skipped tests fail
-the coverage gate. A separate job builds the Linux x64 Native AOT Docker image
+formatting, and runs the sample's full suite using xUnit v3 and Microsoft.Testing.Platform v2
+without a database service. Skipped tests fail the coverage gate. Provider tests
+are maintained upstream. A separate job builds the Linux x64 Native AOT Docker image
 and runs `--help` with networking disabled; CI never authenticates a real bot
 or publishes Bluesky actions.
 
-Actions are pinned to immutable commit SHAs. Test results, database failure logs,
+Actions are pinned to immutable commit SHAs. Test results
 and native build logs are retained as workflow artifacts for 14 days so the
 original failure can be diagnosed before rerunning a job. The separate
 [Test Results workflow](.github/workflows/test-results.yml) publishes the saved
@@ -663,8 +665,7 @@ TRX results as a check on the tested commit and a comment on pull requests,
 including fork pull requests. It uses the original CI event to associate results
 with the correct PR and never checks out or executes PR code with write permissions.
 Missing or inconclusive results fail reporting rather than being presented as
-passing tests. The database passwords
-in the workflow are public, disposable CI-only values, not deployment credentials.
+passing tests.
 
 [Dependabot](.github/dependabot.yml) checks NuGet packages, SHA-pinned GitHub
 Actions, and Docker base images weekly and opens update pull requests. The
@@ -677,56 +678,34 @@ enforce it for newly resolved transitive dependencies. Review SDK replay compati
 update `THIRD-PARTY-NOTICES` for dependency changes before merging; updates are
 not automatically merged.
 
-Unit tests do not contact Bluesky. The sample's integration-test runner is
-located alongside its PostgreSQL creation helper:
+Sample tests do not connect to a database, authenticate with a real account,
+or post to Bluesky. Run the full suite with:
 
 ```powershell
-.\scripts\TestDatabaseProviders.ps1
+dotnet test --solution MaddyBot.slnx
 ```
 
-To run the **full suite**, including non-provider tests, against the runner's
-isolated PostgreSQL and SQLite storage, use:
+`global.json` selects Microsoft.Testing.Platform for .NET 10's `dotnet test`.
+The test project references `xunit.v3.mtp-v2` and runs as an executable, without
+the VSTest adapter or `Microsoft.NET.Test.Sdk`. Filter by class with:
 
 ```powershell
-.\scripts\TestDatabaseProviders.ps1 -AllTests
+dotnet test --solution MaddyBot.slnx --filter-class MaddyBot.Tests.PolicyTests
 ```
 
-The script chooses the first usable engine in this order: Docker,
-then [WSL containers](https://learn.microsoft.com/en-us/windows/wsl/wsl-container)
-(`wslc`, requiring WSL 2.9.3 or later). It provisions an isolated PostgreSQL
-database and SQLite files for package integration coverage. It never uses the
-running bot's database. All selected tests must run and pass, without skips,
-before the container is removed. On failure, the container is retained and the
-script prints inspection and cleanup commands. Results and build output remain
-in the reported temporary directory; running bot binaries are not replaced.
-The SDK's full provider suites are maintained upstream. See the runner's help
-for supported provider selection and prerequisites:
+CI uses xUnit's built-in TRX report extension under MTP. To generate the same
+report locally and reject skips:
 
 ```powershell
-Get-Help .\scripts\TestDatabaseProviders.ps1 -Detailed
+dotnet test --solution MaddyBot.slnx --results-directory TestResults --report-xunit-trx --report-xunit-trx-filename tests.trx --fail-skips on
 ```
 
-Override automatic selection with `-ContainerProvider Docker` or `WSL`,
-for example `.\scripts\TestDatabaseProviders.ps1 -ContainerProvider WSL`.
-An explicitly selected engine must be available; the script does not fall back
-to a different one.
-
-For manual PostgreSQL coverage with a separately provisioned disposable test
-database, set its connection string in the same shell. PostgreSQL integration
-tests create isolated schemas and use fake remote actions:
-
-```powershell
-$env:MADDYBOT_TEST_CONNECTION = 'Host=127.0.0.1;Port=54329;Database=maddybot;Username=maddybot;Password=<development-password>'
-dotnet test MaddyBot.slnx
-```
-
-PostgreSQL integration tests are explicitly skipped when that variable is absent.
-Use the isolated runner with `-AllTests` for the full sample suite without skips.
-Tests cover policy/configuration, queued exclusions and uncertain replies through
-the public handler, host wiring, doctor/health/metrics behavior, and saved donor
-database migration with fixed keys, progress, credentials, and cooldowns. Internal
-replay, serialization, provider, and dispatcher suites now belong upstream. No test
-authenticates with a real bot account or posts to Bluesky.
+When the bot is running, use `--artifacts-path` with a separate directory so
+builds/tests do not replace its binaries. Tests cover policy/configuration,
+queued exclusions and uncertain replies through the public handler, service
+registration, and process statistics. Provider, persistence/migration, replay,
+serialization, and dispatcher suites belong to the upstream SDK project.
+Set `TESTINGPLATFORM_TELEMETRY_OPTOUT=1` to disable MTP telemetry; CI sets it.
 
 ## License
 

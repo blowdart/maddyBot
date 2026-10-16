@@ -19,13 +19,15 @@ multi-target testing and public API baseline rules do not apply to this app.
 * Use the SDK pinned in `global.json` and `MaddyBot.slnx`.
 * Restore: `dotnet restore MaddyBot.slnx`.
 * Build: `dotnet build MaddyBot.slnx -c Debug --no-incremental`.
-* Tests use **xUnit v2 and VSTest**, not Microsoft.Testing.Platform or xUnit v3.
-* Run tests: `dotnet test MaddyBot.slnx`.
-* Filter tests with VSTest syntax, for example
-  `dotnet test MaddyBot.slnx --filter FullyQualifiedName~PolicyTests`.
-* PostgreSQL tests require `MADDYBOT_TEST_CONNECTION`; use a disposable database
-  and verify tests actually ran rather than accepting skips as database coverage.
-  Never alter a running user's database, schema, checkpoint or container to test changes.
+* Tests use **xUnit v3 and Microsoft.Testing.Platform v2**. `global.json` selects
+  MTP for `dotnet test`; the test project is an executable with the MTP runner.
+* Run tests: `dotnet test --solution MaddyBot.slnx`.
+* Filter with `--filter-class MaddyBot.Tests.PolicyTests`, not VSTest's `--filter`.
+* CI uses `--report-xunit-trx --report-xunit-trx-filename tests.trx` for the
+  existing TRX publisher and `--fail-skips on` to reject incomplete runs.
+* Sample tests do not need a database. Provider and database migration coverage
+  belongs to the upstream Bot SDK project. Never alter a running user's database,
+  schema, checkpoint or container to test changes.
 * Warnings are errors. Check formatting with
   `dotnet format MaddyBot.slnx --verify-no-changes --severity info --no-restore`.
   Use the whitespace formatter for formatting-only fixes; do not blindly apply
@@ -155,16 +157,14 @@ When checking line endings locally, use `git ls-files --eol` and
 
 ## Testing and checkin conventions
 
-* Follow nearby xUnit v2 tests and fake remote/logging patterns; no real Bluesky writes.
+* Follow nearby xUnit v3 tests and fake remote/logging patterns; no real Bluesky writes.
 * Do not add `// Arrange` / `// Act` / `// Assert` comments.
 * Prefer theories for similar cases. Add sample matching/configuration examples to
-  `PolicyTests`, queued exclusion cases to `ReplyHandlerTests`, and public-package
-  wiring, diagnostics, and donor database compatibility cases to `PackageIntegrationTests`.
-  Run these against isolated PostgreSQL and SQLite using
-  `scripts\TestDatabaseProviders.ps1 -AllTests`. The SDK's internal storage,
+  `PolicyTests`, queued exclusion cases to `ReplyHandlerTests`, and sample
+  service-registration cases to `BotRegistrationTests`. The SDK's provider and internal storage,
   replay, serialization, and action tests live upstream, not in this consumer.
 * Before committing code, require a clean non-incremental Debug solution build
-  and full test suite, including actual isolated PostgreSQL coverage. Filtered
+  and full sample test suite. Filtered
   tests and incremental builds are iteration tools, not the final commit gate.
 * Commit only when requested, use a feature branch, preserve unrelated changes,
   and use short imperative commit messages.

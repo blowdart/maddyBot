@@ -30,10 +30,6 @@
     <File Path=".github\workflows\ci.yml" />
     <File Path=".github\workflows\test-results.yml" />
   </Folder>
-  <Folder Name="/Documentation/">
-    <File Path="Documentation\BotSdk.md" />
-    <File Path="Documentation\README.md" />
-  </Folder>
   <Folder Name="/src/">
     <Project Path="src\MaddyBot\MaddyBot.csproj" />
   </Folder>
@@ -42,6 +38,5 @@
   </Folder>
   <Folder Name="/scripts/">
     <File Path="scripts\create-postgresql.ps1" />
-    <File Path="scripts\TestDatabaseProviders.ps1" />
   </Folder>
 </Solution>
