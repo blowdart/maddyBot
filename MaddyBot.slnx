@@ -16,9 +16,6 @@
     <File Path="README.md" />
     <File Path="THIRD-PARTY-NOTICES" />
   </Folder>
-  <Folder Name="/.do/">
-    <File Path=".do\app.yaml" />
-  </Folder>
   <Folder Name="/.github/">
     <File Path=".github\copilot-instructions.md" />
     <File Path=".github\dependabot.yml" />
@@ -28,6 +25,7 @@
   </Folder>
   <Folder Name="/.github/workflows/">
     <File Path=".github\workflows\ci.yml" />
+    <File Path=".github\workflows\release.yml" />
     <File Path=".github\workflows\test-results.yml" />
   </Folder>
   <Folder Name="/src/">
@@ -38,5 +36,7 @@
   </Folder>
   <Folder Name="/scripts/">
     <File Path="scripts\create-postgresql.ps1" />
+    <File Path="scripts\deploy_digitalocean.py" />
+    <File Path="scripts\test_deploy_digitalocean.py" />
   </Folder>
 </Solution>

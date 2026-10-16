@@ -604,10 +604,9 @@ secret environment values, and configure your hosting provider's liveness probe
 to use `/health/live` on port 8080. Do not assume the provider honors the image's
 Docker `HEALTHCHECK`; configure restart behavior explicitly.
 
-The optional `.do/app.yaml` file is one provider-specific deployment example,
-not a requirement. Use your hosting provider's deployment configuration and
-database service. Creating these resources may incur charges; the repository
-does not provision them automatically.
+Manage deployment configuration in your hosting provider's live app spec and
+database settings. Creating resources may incur charges; the repository does
+not provision them automatically.
 
 Production configuration uses environment variables:
 `Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,
@@ -633,6 +632,68 @@ container filesystems, so do not move that state into local files unless your
 deployment guarantees persistent storage. SQLite is an option for local or
 single-host deployments only when its database file lives on persistent local
 storage.
+
+### Manual production releases
+
+The [Release workflow](.github/workflows/release.yml) updates the existing
+DigitalOcean app `8c1c1576-3e22-4840-9def-f729526a3ad4` using images in
+`registry.digitalocean.com/idunno-registry/maddybot`. It does not create an app,
+database, user, or VPC, or replace the live app configuration with a checked-in spec.
+
+Before the first release, create a GitHub environment named **`production`** in
+repository Settings -> Environments:
+
+| Setting | Value |
+|---|---|
+| Deployment branches | Only `main`. |
+| Environment variable `DIGITALOCEAN_WORKER_NAME` | The exact existing worker component name from the live App Spec, not the app name. |
+| Environment secret `DIGITALOCEAN_ACCESS_TOKEN` | A DigitalOcean token authorized to read/update the app, inspect its deployments, and generate read/write registry credentials. |
+| Required reviewers | Configure a production approval if available for the repository's GitHub plan. |
+
+Keep database credentials, the bot app password, archive key, and encryption key
+in App Platform's existing runtime secrets; do not copy them into GitHub.
+Restrict access to the DigitalOcean token and use an expiry/rotation policy.
+The worker must already use the `maddybot` DOCR image, run one instance without
+autoscaling, have liveness checks configured, and have automatic image-push
+deployment disabled.
+
+After merging the workflow, wait for **CI on the main push** to pass. Open
+Actions -> Release -> Run workflow, select **main**, and run it. Other branches
+are skipped. The workflow deploys the exact commit captured by that dispatch;
+it does not silently switch to a newer main commit while running.
+
+The workflow requires that commit's latest main-push CI run to have succeeded,
+builds a Linux-x64 native image, and runs `--help` with networking disabled.
+It pushes a unique `<commit>-<run-id>-<attempt>` tag using one-hour registry
+credentials, then deploys the resulting digest rather than a mutable tag.
+Production releases are serialized and do not cancel an active release.
+
+The deployment script reads the live app spec and changes only the selected
+worker's image tag/digest and registry selection, preserving its database,
+VPC, encrypted secrets, liveness checks, and shutdown settings. It refuses an
+already-running deployment. Avoid editing the app or starting other deployments
+while releasing: the DigitalOcean spec update is not an atomic image-only patch.
+No secret-bearing specs or API responses are printed or uploaded as artifacts.
+
+Success requires the specific deployment to become `ACTIVE` within 20 minutes
+and still be the active deployment with the expected worker image digest.
+This checks App Platform's deployment result, not whether a real reply was
+sent. Confirm replay progress and normal worker behavior in runtime logs.
+The Actions summary records the new image and previous worker image selection.
+Retain both images in the registry for rollback.
+
+Failure or timeout fails the workflow; it does not reset durable state,
+automatically roll back, rerun CI, or issue a second deployment update. Inspect
+App Platform first, particularly after a timeout or lost API response: a
+deployment can continue after the workflow stops waiting. An application rollback
+must account for database-schema and stored-payload compatibility; never restore
+an older database backup just to roll back an image.
+
+Offline deployment-script checks use Python's standard library:
+
+```powershell
+python -B -m unittest discover -s scripts -p test_deploy_digitalocean.py
+```
 
 ## Tests
 

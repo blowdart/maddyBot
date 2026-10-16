@@ -16,7 +16,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-$PostgreSqlMajor = 16 # Keep in sync with the sample's .do/app.yaml.
+$PostgreSqlMajor = 16 # Match the hosted database's major version for local development.
 
 $engineName = switch ($HostType) {
     'Docker' { 'docker' }
