@@ -15,10 +15,12 @@ Its default reply is:
 
 > It's just "Aspire" 🤬
 
-The ASP.NET Core host runs a replay reader and a durable-outbox sender. An
+Built on the published **`idunno.Bluesky.BotSdk`** NuGet package, the ASP.NET Core
+host runs a replay reader and a durable-outbox sender. An
 **outbox** is database work saved before attempting a remote action, so a restart
-does not forget it. This sample uses PostgreSQL through Npgsql and parameterized
-SQL; there is no Entity Framework.
+does not forget it. The **`idunno.Bluesky.BotSdk.PostgreSQL`** package provides
+storage through Npgsql and parameterized SQL; there is no Entity Framework.
+This repository contains the sample application, not a copy of the SDK.
 
 **New here?** Follow [Local development](#local-development) for a safe, no-write
 run of the sample, then [Make this sample your own](#make-this-sample-your-own).
@@ -27,49 +29,27 @@ the [upstream Bot SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/ver
 
 ## Bot SDK and sample
 
-The published `idunno.Bluesky.BotSdk` NuGet package is the reusable watcher-and-action runtime. It owns
+The `idunno.Bluesky.BotSdk` package owns the reusable watcher-and-action runtime:
 archive/live replay, full checkpoints, durable action work, database access,
 ownership leases, saved authentication, rate accounting, sending/reconciliation,
 diagnostics, and memory-only health endpoints. It does not contain MaddyBot's
 phrase matching, reply text, or tags.
 
+| Package | Role in this sample |
+|---|---|
+| `idunno.Bluesky.BotSdk` | Hosted workers, durable actions, authentication, replay recovery, diagnostics, and health probes. |
+| `idunno.Bluesky.BotSdk.PostgreSQL` | PostgreSQL storage, schema initialization/migration, and the host-owned connection pool. |
+| `idunno.AtProto` and `idunno.Bluesky` | Protocol and Bluesky types used by the application and its policy. |
+
 `src\MaddyBot` is the consuming application: its `BotOptions` extends the SDK's
 options with watch phrases, reply choices, exclusions, and CA settings; `MaddyReplyPolicy` implements
 `IBotPolicy`, and `Program.cs` owns configuration, CLI arguments, HTTP identity,
-and web hosting. Register runtime services with
-`AddBlueskyBot<TPolicy>(options, httpUserAgent, lookbackCutoff)`
-and map probes with `MapBlueskyBotHealthEndpoints()`.
-
-Choose exactly one storage provider through the returned builder:
-
-```csharp
-services.AddSingleton(options); // The policy consumes the sample's derived options.
-services.AddBlueskyBot<MaddyReplyPolicy>(
-    options,
-    httpUserAgent,
-    lookbackCutoff)
-    .WithPostgreSqlStorage(connectionString, options.DatabaseCaCertificate);
-```
-
-Provider extensions live in `idunno.Bluesky.BotSdk.DataProviders`. PostgreSQL is
-the sample's choice, not an SDK default. The upstream SDK also offers MySQL,
-SQLite, and in-memory providers through their packages. SQLite needs a persistent
-local file for durable operation, not a network filesystem.
-
-Alternatively, bring your own implementation:
-
-```csharp
-services.AddSingleton<IDatabaseProvider, MyDatabaseProvider>();
-services.AddBlueskyBot<MyPolicy>(
-    options,
-    httpUserAgent);
-```
-
-The SDK uses that singleton without replacing it or registering another provider.
-Custom implementations must preserve `IDatabaseProvider`'s documented durability,
-ownership fencing, replay progress, and uncertain-write recovery guarantees.
-The packaged PostgreSQL registration owns its keyed connection pool; do not add
-a duplicate pool or resolve an unkeyed `NpgsqlDataSource`.
+and web hosting. `BotRegistration.cs` connects the policy to the packaged runtime,
+selects PostgreSQL storage with the configured CA certificate, and replaces the
+built-in reply handler with the sample's queued-author exclusion wrapper.
+`Program.cs` maps the SDK health endpoints. Runtime and provider implementation
+changes belong in the [upstream SDK repository](https://github.com/blowdart/idunno.Bluesky/tree/version/v8.0.0),
+not in this sample.
 
 A policy returns `IReadOnlyList<BotAction>`: `[]` for an ignored event, or one or
 more complete intents built with `BotActions`. The reader persists every action
@@ -82,9 +62,9 @@ thread references before saving; retries reuse the saved payload and fixed key.
 private bookmarks, and adding the source author to an existing bot-owned curation
 list**. Application-defined actions use `BotActions.Create<TPayload>` and a
 singleton `IBotActionHandler`; see the [upstream guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/customBotActions.md).
-MaddyBot intentionally creates only a reply for each eligible match. Package
-versions are centralized in `Directory.Packages.props`; this repository does not
-maintain per-project package lock files.
+MaddyBot intentionally creates only a reply for each eligible match. For a new
+host, alternative storage providers, or custom provider contracts, follow the
+[upstream SDK guide](https://github.com/blowdart/idunno.Bluesky/blob/version/v8.0.0/docs/docs/bots/durableBotSdk.md).
 
 ## Make this sample your own
 
@@ -114,8 +94,7 @@ The same places are marked with customization comments in the code:
 The basic flow is **Jetstream -> ReaderWorker -> saved actions in a database ->
 SenderWorker -> Bluesky**. `OwnershipWorker` decides which running copy may work.
 Workers depend on the singleton `IDatabaseProvider` chosen by the application
-through DI. PostgreSQL, MySQL, SQLite, and custom implementations share that
-contract without placing provider-specific SQL in the workers.
+through DI; this sample registers the packaged PostgreSQL provider.
 `Program.cs` explains how these three workers fit together. Keep detection and
 action construction free of remote writes: the reader must save each intended
 action before the sender attempts it. Keep the saved record key, content,
@@ -150,7 +129,10 @@ only replies.
 
 ## Build and packages
 
-Install the .NET 10 SDK and Docker, then:
+Install the .NET 10 SDK. Docker is needed for local PostgreSQL and the native
+container build, not for the sample test suite. Restore the published packages
+and build the sample directly; no SDK source checkout or project reference is
+required:
 
 ```powershell
 dotnet restore MaddyBot.slnx
@@ -164,6 +146,19 @@ packages are pinned to `8.0.0-prerelease.g699396cf24`, corresponding to
 [`699396cf24f84dc44b393196db18a73646fe1fef`](https://github.com/blowdart/idunno.Bluesky/commit/699396cf24f84dc44b393196db18a73646fe1fef).
 The application references the core BotSdk and PostgreSQL provider packages.
 There is no SQLite dependency or separate ASP.NET Core BotSdk package.
+These are NuGet packages published to the public MyGet feed at
+`https://www.myget.org/F/blowdart/api/v3/index.json`, not nuget.org for this pinned
+prerelease. The committed `nuget.config` maps idunno packages to that feed;
+other dependencies come from nuget.org. Dependabot uses the same source.
+This repository does not maintain per-project package lock files.
+
+Upgrade packages through `Directory.Packages.props`, keeping the directly
+referenced idunno packages on the same verified published version. Review
+upstream replay checkpoint compatibility, stored-state migration behavior, and
+the SDK-specific generation-mismatch classifier before deploying an upgrade.
+
+### Existing database rollout
+
 For an existing deployment, stop all old instances and back up the database and
 credential encryption key before first packaged startup. Reuse the same database,
 identity, Jetstream service, developer mode, and CA settings; do not reset durable
@@ -177,23 +172,16 @@ Existing queued work keeps its saved key and is never silently re-keyed.
 MaddyBot uses [Nerdbank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning)
 to stamp its assembly and executable with version information derived from Git.
 It is an application build dependency, not part of the BotSdk runtime. The committed
-`version.json` starts at `1.0-alpha`; no Git tags are required. CI fetches full
+`version.json` specifies `1.0`; no Git tags are required. CI fetches full
 history so version height and commit identity are calculated for the build.
 
 Version intent is recorded in `version.json`, not injected during release builds.
-For a stable `1.0` release, commit a change from `"version": "1.0-alpha"` to
-`"version": "1.0"`. To start the next prerelease line, commit `"version":
+To start the next prerelease line, commit `"version":
 "1.1-alpha"`. Builds from `main` are configured as public releases; other refs
 include a commit identifier so their versions remain distinct. The informational
 version includes the Git commit ID. Managed builds in a Git working tree mark
 uncommitted changes `dirty`; the Docker build stamps the supplied commit ID
 without copying Git metadata into its context.
-
-The exact prerelease is available from the public MyGet feed at
-`https://www.myget.org/F/blowdart/api/v3/index.json`; `nuget.config` maps the
-idunno packages to that feed, and Dependabot uses the same source. When upgrading,
-review replay checkpoint compatibility and the SDK-specific generation-mismatch
-classifier.
 
 ### Native AOT
 
