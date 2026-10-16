@@ -20,6 +20,8 @@ Component                                                License
 idunno.AtProto                                           MIT
 idunno.AtProto.Types                                     MIT
 idunno.Bluesky                                           MIT
+idunno.Bluesky.BotSdk                                    MIT
+idunno.Bluesky.BotSdk.PostgreSQL                         MIT
 idunno.Security.Ssrf                                     MIT
 Npgsql                                                   PostgreSQL
 System.CommandLine                                       MIT
@@ -44,6 +46,9 @@ Additional test and build dependencies
 --------------------------------------
 
 Component                                                License
+idunno.Bluesky.BotSdk.SQLite                             MIT
+Microsoft.Data.Sqlite                                    MIT
+Microsoft.Data.Sqlite.Core                               MIT
 Microsoft.AspNetCore.WebUtilities                        MIT
 Microsoft.Net.Http.Headers                               MIT
 Microsoft.CodeCoverage                                   MIT
@@ -76,6 +81,10 @@ Microsoft.Extensions.Primitives                          MIT
 Nerdbank.GitVersioning                                   MIT
 Newtonsoft.Json                                          MIT
 System.Formats.Cbor                                      MIT
+SQLitePCLRaw.bundle_e_sqlite3                            Apache-2.0
+SQLitePCLRaw.core                                        Apache-2.0
+SQLitePCLRaw.lib.e_sqlite3                               Apache-2.0
+SQLitePCLRaw.provider.e_sqlite3                          Apache-2.0
 xunit                                                    Apache-2.0
 xunit.abstractions                                       Apache-2.0
 xunit.analyzers                                          Apache-2.0
@@ -164,6 +173,15 @@ Newtonsoft.Json (test dependency):
   Copyright (c) 2007 James Newton-King.
   https://www.newtonsoft.com/json
   MIT License (below).
+
+SQLitePCLRaw (test dependency):
+  Copyright 2014-2024 SourceGear, LLC.
+  Author: Eric Sink.
+  https://github.com/ericsink/SQLitePCL.raw
+  Apache License, Version 2.0 (below).
+  The native e_sqlite3 package bundles SQLite, whose deliverable code is
+  dedicated to the public domain by its authors:
+  https://www.sqlite.org/copyright.html
 
 xUnit.net and its runner/analyzers (test dependencies):
   Authors include James Newkirk, Brad Wilson and Marcin Dziewialtowski.

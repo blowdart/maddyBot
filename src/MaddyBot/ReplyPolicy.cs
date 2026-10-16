@@ -129,6 +129,7 @@ internal static partial class ReplyPolicy
             reply);
     }
 
+    /// <summary>Gets the SDK-generated post metadata, including its lexicon converters.</summary>
     private static JsonTypeInfo<Post> PostMetadata { get; } =
         (JsonTypeInfo<Post>)BlueskyJsonSerializerOptions.Default.GetTypeInfo(typeof(Post));
 }
@@ -138,7 +139,7 @@ internal static partial class ReplyPolicy
 internal sealed class MaddyReplyPolicy(BotOptions options) : IBotPolicy
 {
     /// <inheritdoc/>
-    public IReadOnlyList<BotAction> Create(
+    public IReadOnlyList<BotAction> Evaluate(
         JetstreamEvent item,
         DateTimeOffset startedAt)
     {

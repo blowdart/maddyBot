@@ -35,10 +35,13 @@
     <File Path="Documentation\README.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src\idunno.Bluesky.BotSdk\idunno.Bluesky.BotSdk.csproj" />
     <Project Path="src\MaddyBot\MaddyBot.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests\MaddyBot.Tests\MaddyBot.Tests.csproj" />
+  </Folder>
+  <Folder Name="/scripts/">
+    <File Path="scripts\create-postgresql.ps1" />
+    <File Path="scripts\TestDatabaseProviders.ps1" />
   </Folder>
 </Solution>

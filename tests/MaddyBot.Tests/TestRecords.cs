@@ -13,9 +13,6 @@ namespace MaddyBot.Tests;
 
 internal static class TestRecords
 {
-    public static ActionHandlerRegistry Handlers() => new(
-        [new ReplyActionHandler(), new LikeActionHandler(), new RepostActionHandler(), new BookmarkActionHandler(), new ListItemActionHandler()]);
-
     public const string BotDid = "did:plc:ec72yg6n2sydzjvtovvdlxrk";
     public const string AuthorDid = "did:plc:7e6kocyzb77xkncplrkoojej";
     public const string CidValue = "bafyreigwnxqttkhzha2ig4io6wwht3qiugtor4ruglceyfdbnyq53a55fe";

@@ -5,9 +5,10 @@ watcher and reply bot with `idunno.AtProto` and `idunno.Bluesky`. It reads Jetst
 archive/live replay and stores progress and reply work in PostgreSQL through
 Npgsql and parameterized SQL. There is no Entity Framework.
 
-`src\idunno.Bluesky.BotSdk` is the reusable durable-action runtime. It supports
+The published `idunno.Bluesky.BotSdk` package is the durable-action runtime. It supports
 replies, likes, reposts, bookmarks, author membership in curation lists, and
-DI-registered custom action handlers. MaddyBot remains a reply-only example.
+DI-registered custom action handlers. MaddyBot remains a reply-only consumer;
+runtime source and internal tests belong upstream in `blowdart/idunno.Bluesky`.
 
 These instructions are adapted from `blowdart/idunno.Bluesky`'s
 `version/v8.0.0` branch. SDK-specific endpoint generation, package publishing,
@@ -82,9 +83,12 @@ that selects the active process during overlapping deployments.
   `Bot:NeverReplyToDids` in `src\MaddyBot\appsettings.json`.
 * Richer detection and reply construction belong in the marked sections of
   `ReplyPolicy.Create()`. Keep remote writes out of the reader/policy.
-* `IBotPolicy` returns complete `BotAction` batches without remote writes.
+* `IBotPolicy.Evaluate()` returns complete `BotAction` batches without remote writes.
   `ActionDispatcher` uses versioned `IBotActionHandler` implementations to perform
   actions and reconcile uncertain writes. Preserve queued payload-version support.
+* `ExcludingReplyActionHandler` wraps the public packaged reply handler to keep
+  sample-specific queued author exclusions. Replace, rather than duplicate, the
+  built-in reply registration. Always reconcile uncertain writes before rejection.
 * Keep the README customization guide and code signposts synchronized. Remind
   people cloning the sample to change `httpUserAgent` in `Program.cs`.
 * Explain the flow and decisions in plain language. Define terms such as lease
@@ -95,8 +99,9 @@ that selects the active process during overlapping deployments.
 
 ## Serialization, dependencies and configuration
 
-* Reuse SDK-generated type metadata via `BotJson`; use `BotJsonContext` for
-  application-owned types. Do not use reflection-based JSON overloads in the app.
+* Use `BlueskyJsonSerializerOptions` for SDK-owned JSON types. Runtime JSON
+  helpers are internal to the package; do not copy them or regenerate metadata
+  for external DTOs. Do not use reflection-based JSON overloads in the app.
 * Preserve stored request/checkpoint/credential JSON and public health response
   shapes. Add compatibility tests when changing serialization.
 * Configuration binding is source-generated. Preserve AOT/trimming compatibility;
@@ -104,8 +109,7 @@ that selects the active process during overlapping deployments.
 * Versions are centralized in `Directory.Packages.props`. Verify an exact SDK
   prerelease exists in the public MyGet feed configured in `nuget.config` before
   updating; do not guess versions or assume a PR commit is published.
-* Nerdbank.GitVersioning is scoped to the MaddyBot project. Keep its package
-  reference out of the reusable SDK project; version and release intent belong
+* Nerdbank.GitVersioning is scoped to the MaddyBot project; version and release intent belong
   in the root `version.json` and do not require Git tags.
 * Restore dependencies after version changes. Review replay compatibility and
   SDK-specific generation-mismatch classification on upgrades.
@@ -153,11 +157,12 @@ When checking line endings locally, use `git ls-files --eol` and
 
 * Follow nearby xUnit v2 tests and fake remote/logging patterns; no real Bluesky writes.
 * Do not add `// Arrange` / `// Act` / `// Assert` comments.
-* Prefer theories for similar cases. Add matching examples to `PolicyTests`,
-  stored-format cases to `BotJsonTests`, diagnostics cases to `ReplayDiagnosticsTests`,
-  and shared durable processing/recovery cases to `RelationalProviderTests`.
-  Keep SQLite-only connection rules in `SqliteProviderTests`, and durable action
-  sending/reconciliation cases in `RelationalProviderActionTests`.
+* Prefer theories for similar cases. Add sample matching/configuration examples to
+  `PolicyTests`, queued exclusion cases to `ReplyHandlerTests`, and public-package
+  wiring, diagnostics, and donor database compatibility cases to `PackageIntegrationTests`.
+  Run these against isolated PostgreSQL and SQLite using
+  `scripts\TestDatabaseProviders.ps1 -AllTests`. The SDK's internal storage,
+  replay, serialization, and action tests live upstream, not in this consumer.
 * Before committing code, require a clean non-incremental Debug solution build
   and full test suite, including actual isolated PostgreSQL coverage. Filtered
   tests and incremental builds are iteration tools, not the final commit gate.

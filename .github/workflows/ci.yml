@@ -48,18 +48,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ci-only-mysql
-          MYSQL_ROOT_HOST: "%"
-        ports:
-          - 3306/tcp
-        options: >-
-          --health-cmd "bash -c 'echo > /dev/tcp/127.0.0.1/3306'"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 30
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
@@ -103,7 +91,6 @@ jobs:
         id: test
         env:
           MADDYBOT_TEST_CONNECTION: "Host=127.0.0.1;Port=${{ job.services.postgres.ports['5432'] }};Database=maddybot_tests;Username=maddybot_test;Password=ci-only-postgres;SSL Mode=Disable"
-          MADDYBOT_TEST_MYSQL_CONNECTION: "Server=127.0.0.1;Port=${{ job.services.mysql.ports['3306'] }};User ID=root;Password=ci-only-mysql;SslMode=None;Pooling=False;AllowPublicKeyRetrieval=True"
         run: dotnet test MaddyBot.slnx --configuration Debug --no-build --no-restore --results-directory TestResults --logger "trx;LogFileName=tests.trx"
       - name: Verify tests ran without skips
         if: ${{ always() && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
@@ -117,13 +104,12 @@ jobs:
           if ($null -eq $counters -or [int] $counters.total -le 0 -or [int] $counters.passed -ne [int] $counters.total) {
             throw 'Every test must run and pass; failed or skipped tests are not accepted as database coverage.'
           }
-          "$($counters.passed) tests passed with zero skips against isolated PostgreSQL, MySQL, and SQLite storage." >> $env:GITHUB_STEP_SUMMARY
+          "$($counters.passed) tests passed with zero skips against isolated PostgreSQL and SQLite package storage." >> $env:GITHUB_STEP_SUMMARY
       - name: Preserve database diagnostics
         if: ${{ failure() }}
         run: |
           New-Item -ItemType Directory -Path TestResults -Force | Out-Null
           docker logs '${{ job.services.postgres.id }}' *> TestResults/postgres.log
-          docker logs '${{ job.services.mysql.id }}' *> TestResults/mysql.log
       - name: Upload test results and diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
