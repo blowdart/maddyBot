@@ -97,7 +97,9 @@ Attribution and upstream sources
 --------------------------------
 
 idunno SDK and SSRF libraries:
-  Copyright (c) Barry Dorrans. All rights reserved.
+  Copyright (c) 2024-2026 Barry Dorrans (SDK packages).
+  Copyright (c) 2026 Barry Dorrans (SSRF package).
+  All rights reserved.
   https://github.com/blowdart/idunno.Bluesky
   https://github.com/blowdart/idunnoSecuritySsrf
   MIT License (below).

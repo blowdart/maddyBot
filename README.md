@@ -142,8 +142,8 @@ dotnet test --solution MaddyBot.slnx --no-build
 
 Package versions are centralized in `Directory.Packages.props`; feed configuration
 and package-source mapping are centralized in `nuget.config`. Direct idunno
-packages are pinned to `8.0.0-prerelease.g699396cf24`, corresponding to
-[`699396cf24f84dc44b393196db18a73646fe1fef`](https://github.com/blowdart/idunno.Bluesky/commit/699396cf24f84dc44b393196db18a73646fe1fef).
+packages are pinned to `8.0.0-prerelease.g237e4843b8`, corresponding to
+[`237e4843b8`](https://github.com/blowdart/idunno.Bluesky/commit/237e4843b8).
 The application references the core BotSdk and PostgreSQL provider packages.
 There is no SQLite dependency or separate ASP.NET Core BotSdk package.
 These are NuGet packages published to the public MyGet feed at
@@ -502,6 +502,16 @@ The root route (`/`) returns a UTF-8 plain-text summary from `ActionStatistics`:
 `<count> action(s) completed since <UTC date> 🔥`. The count resets on each process
 start and includes newly confirmed actions (including reconciled writes) or
 developer-mode simulations, not skipped targets or failed attempts.
+
+The same page shows memory-only handled replay progress: whether it is catching
+up or within 30 seconds of current time, the estimated lag, the last event's
+service witnessed time, and when handling was last observed locally. Before the
+first handled event in an ownership period, progress is unknown. Observations
+older than 30 seconds are explicitly marked as not recent; quiet reads and
+recovery do not refresh them. Clock differences can put timestamps ahead of the
+local clock and are reported explicitly. Handled progress is not necessarily the
+latest saved checkpoint, and neither backlog nor near-current progress proves
+connectivity or liveness. The page does not query PostgreSQL.
 
 `/health/live` is a fast, in-memory probe of the ownership, reader, and sender
 state machines. It returns 503 for failed workers or overdue operations.

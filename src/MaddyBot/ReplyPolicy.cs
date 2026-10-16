@@ -12,7 +12,6 @@ using idunno.AtProto.Repo;
 using idunno.Bluesky;
 using idunno.Bluesky.BotSdk;
 
-using Microsoft.Extensions.Logging;
 
 namespace MaddyBot;
 
