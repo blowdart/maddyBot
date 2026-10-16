@@ -24,7 +24,7 @@ internal static class StatusPage
     {
         if (witnessedAt is not DateTimeOffset witnessed || observedAt is not DateTimeOffset observed)
         {
-            return $"{statistics.Summary}\nReplay progress not yet known; no handled event observed in this ownership period.";
+            return $"{statistics.Summary}\nReplay progress not yet known; no handled event observed in this ownership period.\n";
         }
 
         TimeSpan lag = now - witnessed;
@@ -47,7 +47,7 @@ internal static class StatusPage
             Last handled event witnessed: {witnessed.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z.
             Progress last observed: {observed.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z ({observationAge}).{activity}
             Lag is an event-time estimate, not a durable checkpoint or proof of connectivity or liveness.
-            """);
+            """) + "\n";
     }
 
     /// <summary>Formats a nonnegative duration with total hours so long backlogs do not wrap at midnight.</summary>
