@@ -155,7 +155,7 @@ public sealed class PackageIntegrationTests
     public async Task DoctorAndEndpointsUsePackagedStorage(bool postgres)
     {
         await using Store store = await Store.CreateAsync(postgres);
-        IBotDatabaseDiagnostics diagnostics = Assert.IsAssignableFrom<IBotDatabaseDiagnostics>(store.Database);
+        IBotDatabaseDiagnostics diagnostics = Assert.IsType<IBotDatabaseDiagnostics>(store.Database, exactMatch: false);
         if (postgres)
         {
             await diagnostics.CheckConnectionAsync(CancellationToken.None);
