@@ -17,7 +17,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: production
+    environment: release
     env:
       REGISTRY: idunno-registry
       APP_ID: 8c1c1576-3e22-4840-9def-f729526a3ad4
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$WORKER_NAME" || { echo "::error::Set production variable DIGITALOCEAN_WORKER_NAME."; exit 1; }
+          test -n "$WORKER_NAME" || { echo "::error::Set release environment variable DIGITALOCEAN_WORKER_NAME."; exit 1; }
           runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
             --commit "$GITHUB_SHA" --branch main --event push --limit 100 \
             --json databaseId,status,conclusion)
@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$DIGITALOCEAN_ACCESS_TOKEN" || { echo "::error::Set production secret DIGITALOCEAN_ACCESS_TOKEN."; exit 1; }
+          test -n "$DIGITALOCEAN_ACCESS_TOKEN" || { echo "::error::Set release environment secret DIGITALOCEAN_ACCESS_TOKEN."; exit 1; }
           umask 077
           config=$(mktemp -d)
           trap 'rm -f "$config/config.json"; rmdir "$config"' EXIT
