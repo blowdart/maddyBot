@@ -45,7 +45,8 @@ $engine = $command.Source
 if ($LASTEXITCODE -ne 0) {
     throw "$HostType is not usable. Start/configure the selected host before running this script."
 }
-$existing = & $engine container ls --all --filter "name=^/$ContainerName$" --quiet
+$containerNamePattern = [regex]::Escape($ContainerName)
+$existing = & $engine container ls --all --filter "name=^/$containerNamePattern$" --quiet
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to inspect $HostType containers."
 }
