@@ -376,7 +376,7 @@ with no remote writes. New excluded events are always filtered by the policy.
 | Restart | Restore the original service, request bounds/filters, complete `SnapshotCheckpoint`, and application processed-through boundary. |
 | Eligibility | Normal create events only. Ignore updates, sync-backfill assertions, own posts, and excluded DIDs. Use the server's witnessed time for initial eligibility, not an author's untrusted `createdAt`. |
 | Historical work | No age limit or backlog expiry for eligible posts since the recorded start. Downtime can create a large queue. |
-| Malformed data | **Explicitly authorized data loss:** persist an audit entry, log a warning, and skip malformed individual archive records, malformed blocks, and invalid post records. Valid records in an undecodable block can also be lost. Unsafe framing, truncated transport, and other non-skippable SDK errors are not blindly skipped. |
+| Malformed data | **Explicitly authorized data loss:** persist an audit entry, log a warning, and skip malformed individual archive records, malformed blocks, and invalid post records. The reply policy reports missing posts, JSON decoding errors, and SDK constructor argument-validation failures as `MalformedEventException`; configuration and programming errors must not use this skip signal. Valid records in an undecodable block can also be lost. Unsafe framing, truncated transport, and other non-skippable SDK errors are not blindly skipped. |
 | Generation mismatch | Re-enumerate from the latest durable checkpoint with the unchanged request, at most five times per process, with cancellable 30-second waits. Other invalid-data errors are not treated as compaction races. |
 | Deleted/restricted targets | Observe source deletes in the reader; reconcile uncertain sends first, then record `not-sent` for deleted targets or server-confirmed reply restrictions. AppView absence alone is retried because indexing can lag. Known target-rejection errors are recorded as terminal outcomes. |
 | Unknown remote outcome | Retain `uncertain` work and use its kind's reconciliation handler before retrying. Replies, likes, and reposts use fixed keys; list membership uses a fixed list/author key. Bookmarks use exhaustive service scans, not a caller-selected remote key. Never generate replacement identities on retry. |
@@ -522,6 +522,9 @@ Actions use the package's .NET **source-generated** `[LoggerMessage]` methods an
 human-readable console logging with UTC timestamps. Enqueue, simulate, send, reconcile, skip, cooldown, retry,
 authentication, ownership, and fatal outcomes carry structured properties and
 stable event IDs. Secrets and credential objects are not logged.
+The sample's `MaddyReplyPolicy` warning event `InvalidSourcePost` (ID 1) includes
+the source record's AT URI and exception when post deserialization fails; the SDK
+still owns the durable skip audit and replay progress.
 Optional observations use explicit descriptions such as "unbounded", "not yet
 observed", or "not yet saved" instead of displaying `(null)` or inventing zero
 values. HTTP outcomes include a cooldown clause only when a future deadline

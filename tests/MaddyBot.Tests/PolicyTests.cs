@@ -2,12 +2,15 @@
 // Licensed under the MIT License.
 
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using idunno.AtProto;
 using idunno.AtProto.Jetstream;
 using idunno.AtProto.Repo;
 
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using Xunit;
 
@@ -98,7 +101,7 @@ public sealed class PolicyTests
     [Fact]
     public void MatchingPostCreatesReplyOnly()
     {
-        BotAction reply = Assert.Single(new MaddyReplyPolicy(TestRecords.Options()).Evaluate(
+        BotAction reply = Assert.Single(new MaddyReplyPolicy(TestRecords.Options(), NullLogger<MaddyReplyPolicy>.Instance).Evaluate(
             TestRecords.Event(),
             TestRecords.Start));
         Assert.Equal("reply", reply.ActionKind);
@@ -133,7 +136,7 @@ public sealed class PolicyTests
     {
         BotOptions options = TestRecords.Options();
         JetstreamCommitEvent item = TestRecords.Event();
-        Assert.Empty(new MaddyReplyPolicy(options).Evaluate(TestRecords.Event("unrelated"), TestRecords.Start));
+        Assert.Empty(new MaddyReplyPolicy(options, NullLogger<MaddyReplyPolicy>.Instance).Evaluate(TestRecords.Event("unrelated"), TestRecords.Start));
         Assert.Null(ReplyPolicy.Create(item with { Did = new Did(options.Did) }, TestRecords.Start, options));
         Assert.Null(ReplyPolicy.Create(item with { IsSyncBackfill = true }, TestRecords.Start, options));
         Assert.Null(ReplyPolicy.Create(item with { WitnessedAt = TestRecords.Start.AddTicks(-1) }, TestRecords.Start, options));
@@ -143,6 +146,111 @@ public sealed class PolicyTests
         }, TestRecords.Start, options));
         options.NeverReplyToDids = [TestRecords.AuthorDid];
         Assert.Null(ReplyPolicy.Create(item, TestRecords.Start, options));
+    }
+
+    /// <summary>Reports posts that violate SDK constructor constraints as malformed events for audited skipping.</summary>
+    /// <param name="length">The number of ASCII characters in the invalid post.</param>
+    [Theory]
+    [InlineData(301)]
+    [InlineData(3001)]
+    public void RejectsPostTextBeyondLexiconLimitAsMalformed(int length)
+    {
+        JetstreamCommitEvent item = TestRecords.Event();
+        JsonObject record = JsonNode.Parse(item.Commit.Record!.Value.GetRawText())!.AsObject();
+        record["text"] = new string('x', length);
+        item = item with
+        {
+            Commit = item.Commit with
+            {
+                Record = JsonSerializer.SerializeToElement(record)
+            }
+        };
+
+        MalformedEventException exception = Assert.Throws<MalformedEventException>(() =>
+            ReplyPolicy.Create(item, TestRecords.Start, TestRecords.Options()));
+
+        Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
+    }
+
+    /// <summary>Reports missing, null, and invalid source records through the SDK's explicit skip contract.</summary>
+    /// <param name="json">The source record JSON, or no record.</param>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    [InlineData("""{"text":42,"createdAt":"2026-10-07T00:00:00Z"}""")]
+    [InlineData("""{"text":null,"createdAt":"2026-10-07T00:00:00Z"}""")]
+    public void RejectsInvalidPostJsonAsMalformed(string? json)
+    {
+        using JsonDocument? record = json is null ? null : JsonDocument.Parse(json);
+        JetstreamCommitEvent item = TestRecords.Event();
+        item = item with
+        {
+            Commit = item.Commit with
+            {
+                Record = record?.RootElement.Clone()
+            }
+        };
+
+        MalformedEventException exception = Assert.Throws<MalformedEventException>(() =>
+            new MaddyReplyPolicy(TestRecords.Options(), NullLogger<MaddyReplyPolicy>.Instance).Evaluate(item, TestRecords.Start));
+
+        Assert.IsType<JsonException>(exception.InnerException);
+    }
+
+    /// <summary>Reports source constructor argument validation failures through the explicit skip contract.</summary>
+    [Fact]
+    public void RejectsNullPostTagAsMalformed()
+    {
+        JetstreamCommitEvent item = TestRecords.Event();
+        JsonObject record = JsonNode.Parse(item.Commit.Record!.Value.GetRawText())!.AsObject();
+        record["tags"] = new JsonArray((JsonNode?)null);
+
+        item = item with
+        {
+            Commit = item.Commit with
+            {
+                Record = JsonSerializer.SerializeToElement(record)
+            }
+        };
+
+        PolicyLogger logger = new();
+        MalformedEventException exception = Assert.Throws<MalformedEventException>(() =>
+            new MaddyReplyPolicy(TestRecords.Options(), logger).Evaluate(item, TestRecords.Start));
+
+        Assert.IsType<ArgumentException>(exception.InnerException);
+        Assert.Equal(LogLevel.Warning, logger.Level);
+        Assert.Equal(1, logger.EventId.Id);
+        Assert.Equal("InvalidSourcePost", logger.EventId.Name);
+        Assert.Same(exception, logger.Exception);
+        Assert.Contains(
+            new KeyValuePair<string, object?>("SourceUri", $"at://{TestRecords.AuthorDid}/app.bsky.feed.post/{item.Commit.RKey}"),
+            logger.State);
+    }
+
+    /// <summary>Captures the structured malformed-source warning without writing logs externally.</summary>
+    private sealed class PolicyLogger : ILogger<MaddyReplyPolicy>
+    {
+        public LogLevel Level { get; private set; }
+        public EventId EventId { get; private set; }
+        public Exception? Exception { get; private set; }
+        public IReadOnlyList<KeyValuePair<string, object?>> State { get; private set; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Level = logLevel;
+            EventId = eventId;
+            Exception = exception;
+            State = Assert.IsType<IReadOnlyList<KeyValuePair<string, object?>>>(state, exactMatch: false);
+        }
     }
 
     /// <summary>Captures a configured choice in the complete saved JSON, rather than choosing again on send.</summary>
