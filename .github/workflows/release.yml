@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Deploy production worker
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    env:
+      REGISTRY: idunno-registry
+      APP_ID: 8c1c1576-3e22-4840-9def-f729526a3ad4
+      WORKER_NAME: ${{ vars.DIGITALOCEAN_WORKER_NAME }}
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require successful main CI for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_NAME" || { echo "::error::Set production variable DIGITALOCEAN_WORKER_NAME."; exit 1; }
+          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+            --commit "$GITHUB_SHA" --branch main --event push --limit 100 \
+            --json databaseId,status,conclusion)
+          echo "$runs" | jq -e 'sort_by(.databaseId) | last |
+            .status == "completed" and .conclusion == "success"' >/dev/null ||
+            { echo "::error::The latest main push CI run for this commit must have completed successfully. No CI rerun was requested."; exit 1; }
+      - name: Check deployment script
+        run: python3 -m unittest discover -s scripts -p 'test_deploy_digitalocean.py'
+      - name: Build and smoke-test native image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="registry.digitalocean.com/$REGISTRY/maddybot:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 \
+            --build-arg GITHUB_ACTIONS=true \
+            --build-arg GITHUB_REF=refs/heads/main \
+            --build-arg "GITHUB_SHA=$GITHUB_SHA" --tag "$image" .
+          docker run --rm --network none "$image" --help
+      - name: Push image with short-lived registry credentials
+        id: push
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DIGITALOCEAN_ACCESS_TOKEN" || { echo "::error::Set production secret DIGITALOCEAN_ACCESS_TOKEN."; exit 1; }
+          umask 077
+          config=$(mktemp -d)
+          trap 'rm -f "$config/config.json"; rmdir "$config"' EXIT
+          curl --fail --silent --show-error --max-time 60 --get \
+            --header "Authorization: Bearer $DIGITALOCEAN_ACCESS_TOKEN" \
+            --data-urlencode read_write=true --data-urlencode expiry_seconds=3600 \
+            "https://api.digitalocean.com/v2/registries/$REGISTRY/docker-credentials" > "$config/config.json"
+          docker --config "$config" push "$IMAGE"
+          reference=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          digest="${reference##*@}"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No valid pushed image digest."; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Published image"
+            echo "\`$IMAGE\`"
+            echo "\`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Update existing worker and wait for deployment
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: python3 scripts/deploy_digitalocean.py
