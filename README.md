@@ -646,6 +646,18 @@ Manage deployment configuration in your hosting provider's live app spec and
 database settings. Creating resources may incur charges; the repository does
 not provision them automatically.
 
+The GitHub Actions **Release** workflow updates the existing DigitalOcean web
+service, not a worker component. In the GitHub `release` environment, set
+`DIGITALOCEAN_SERVICE_NAME` to the exact component name (`maddybot` for this
+deployment). The workflow retains app ID `8c1c1576-3e22-4840-9def-f729526a3ad4`;
+change `APP_ID` in the workflow if deploying to a different app.
+Configure one service instance without autoscaling, HTTP port 8080, and a
+`liveness_health_check` using `/health/live` on that port. The separate
+`health_check` controls readiness and does not replace the restart probe.
+Disable automatic registry-push deployments. Release pins the image digest,
+preserves the rest of the live app spec (including routes, secrets, and database
+settings), and waits for that exact deployment to become active.
+
 Production configuration uses environment variables:
 `Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,
 `Bot__Did`, `Bot__Handle`, and `ConnectionStrings__Bot`.
