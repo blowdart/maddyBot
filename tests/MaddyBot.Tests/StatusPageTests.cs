@@ -1,6 +1,8 @@
 // Copyright (c) Barry Dorrans. All rights reserved.
 // Licensed under the MIT License.
 
+using Microsoft.Net.Http.Headers;
+
 using Xunit;
 
 namespace MaddyBot.Tests;
@@ -9,6 +11,49 @@ namespace MaddyBot.Tests;
 public sealed class StatusPageTests
 {
     private static readonly DateTimeOffset s_now = new(2026, 10, 16, 14, 54, 40, TimeSpan.Zero);
+
+    /// <summary>Preserves plain text unless the client explicitly requests an acceptable HTML response.</summary>
+    /// <param name="accept">The client's Accept header, or null when absent.</param>
+    /// <param name="expected">Whether the response should be HTML.</param>
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("*/*", false)]
+    [InlineData("text/plain", false)]
+    [InlineData("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", true)]
+    [InlineData("TEXT/HTML", true)]
+    [InlineData("text/html;q=0", false)]
+    [InlineData("text/plain;q=1,text/html;q=0.5", false)]
+    [InlineData("text/plain;q=0.5,text/html;q=1", true)]
+    public void SelectsRequestedFormat(string? accept, bool expected)
+    {
+        IList<MediaTypeHeaderValue>? types = accept is null
+            ? null
+            : MediaTypeHeaderValue.ParseList([accept]);
+
+        Assert.Equal(expected, StatusPage.PrefersHtml(types));
+    }
+
+    /// <summary>Keeps the complete UTC status available before browser-local enhancement runs.</summary>
+    /// <param name="knownProgress">Whether handled replay progress has been observed.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HtmlPreservesEncodedPlainText(bool knownProgress)
+    {
+        ActionStatistics statistics = new(s_now);
+        DateTimeOffset? witnessed = knownProgress ? s_now.AddSeconds(-5) : null;
+        DateTimeOffset? observed = knownProgress ? s_now : null;
+        string text = StatusPage.Render(statistics, witnessed, observed, s_now);
+
+        string html = StatusPage.RenderHtml(statistics, witnessed, observed, s_now);
+
+        Assert.StartsWith("<!doctype html>", html);
+        Assert.Contains($"<pre id=\"status\">{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(text)}</pre>", html);
+        Assert.Contains("new Intl.DateTimeFormat(undefined", html);
+        Assert.Contains("timestamp.dateTime = instant", html);
+        Assert.Contains("browser local", html);
+        Assert.DoesNotContain("innerHTML", html);
+    }
 
     /// <summary>Preserves the action count while explaining unknown progress at startup or ownership change.</summary>
     [Fact]
