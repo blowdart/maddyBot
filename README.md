@@ -522,7 +522,11 @@ saved.
 
 ## Health and logs
 
-Open `/` for a quick plain-text status page. It starts with the action count:
+Open `/` for a quick status page. Browsers requesting `text/html` receive an HTML
+page that keeps UTC timestamps and adds the browser's local date, time, and time
+zone alongside them using JavaScript. With JavaScript disabled, UTC remains
+visible. Command-line clients receive the original plain text; request
+`Accept: text/plain` explicitly when needed. The page starts with the action count:
 `<count> action(s) completed since <UTC date> 🔥`. The count resets on each process
 start and includes newly confirmed actions (including reconciled writes) or
 developer-mode simulations, not skipped targets or failed attempts.
@@ -645,6 +649,18 @@ don't necessarily use the image's Docker `HEALTHCHECK`.
 Manage deployment configuration in your hosting provider's live app spec and
 database settings. Creating resources may incur charges; the repository does
 not provision them automatically.
+
+The GitHub Actions **Release** workflow updates the existing DigitalOcean web
+service, not a worker component. In the GitHub `release` environment, set
+`DIGITALOCEAN_SERVICE_NAME` to the exact component name (`maddybot` for this
+deployment). The workflow retains app ID `8c1c1576-3e22-4840-9def-f729526a3ad4`;
+change `APP_ID` in the workflow if deploying to a different app.
+Configure one service instance without autoscaling, HTTP port 8080, and a
+`liveness_health_check` using `/health/live` on that port. The separate
+`health_check` controls readiness and does not replace the restart probe.
+Disable automatic registry-push deployments. Release pins the image digest,
+preserves the rest of the live app spec (including routes, secrets, and database
+settings), and waits for that exact deployment to become active.
 
 Production configuration uses environment variables:
 `Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,

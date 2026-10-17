@@ -122,13 +122,17 @@ await using WebApplication app = builder.Build();
 
 app.MapGet(
     "/",
-    (ActionStatistics statistics, BotReplayProgress progress, TimeProvider time) =>
+    (HttpContext context, ActionStatistics statistics, BotReplayProgress progress, TimeProvider time) =>
     {
         ReplayProgressSnapshot snapshot = progress.Snapshot;
+        bool html = StatusPage.PrefersHtml(context.Request.GetTypedHeaders().Accept);
+        context.Response.Headers.Vary = "Accept";
 
         return Results.Text(
-            StatusPage.Render(statistics, snapshot.WitnessedAt, snapshot.ObservedAt, time.GetUtcNow()),
-            contentType: "text/plain",
+            html
+                ? StatusPage.RenderHtml(statistics, snapshot.WitnessedAt, snapshot.ObservedAt, time.GetUtcNow())
+                : StatusPage.Render(statistics, snapshot.WitnessedAt, snapshot.ObservedAt, time.GetUtcNow()),
+            contentType: html ? "text/html" : "text/plain",
             contentEncoding: Encoding.UTF8);
     });
 
