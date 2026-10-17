@@ -16,13 +16,36 @@ internal static class StatusPage
     /// <summary>Selects HTML only when the client explicitly prefers it over plain text.</summary>
     /// <param name="acceptedTypes">The parsed Accept header values, if provided by the client.</param>
     /// <returns><see langword="true"/> for an HTML response; otherwise, <see langword="false"/>.</returns>
-    public static bool PrefersHtml(IList<MediaTypeHeaderValue>? acceptedTypes) =>
-        acceptedTypes?
-            .Where(type => type.Quality.GetValueOrDefault(1) > 0
-                && (type.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)
-                    || type.MediaType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)))
-            .OrderByDescending(type => type.Quality.GetValueOrDefault(1))
-            .FirstOrDefault()?.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase) == true;
+    public static bool PrefersHtml(IList<MediaTypeHeaderValue>? acceptedTypes)
+    {
+        if (acceptedTypes is null || !acceptedTypes.Any(
+            type => type.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)
+                && type.Quality.GetValueOrDefault(1) > 0))
+        {
+            return false;
+        }
+
+        double htmlQuality = EffectiveQuality(acceptedTypes, "text/html");
+        double textQuality = EffectiveQuality(acceptedTypes, "text/plain");
+
+        return htmlQuality > 0 && htmlQuality >= textQuality;
+    }
+
+    /// <summary>Uses the most specific matching media range before comparing response qualities.</summary>
+    /// <param name="acceptedTypes">The client's parsed Accept header values.</param>
+    /// <param name="mediaType">The response media type being considered.</param>
+    /// <returns>The quality of the most specific matching range, or zero when none matches.</returns>
+    private static double EffectiveQuality(IList<MediaTypeHeaderValue> acceptedTypes, string mediaType) =>
+        acceptedTypes
+            .Where(type => type.MediaType.Equals(mediaType, StringComparison.OrdinalIgnoreCase)
+                || type.MediaType.Equals("text/*", StringComparison.OrdinalIgnoreCase)
+                || type.MediaType.Equals("*/*", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(type => type.MediaType.Equals(mediaType, StringComparison.OrdinalIgnoreCase)
+                ? 2
+                : type.MediaType.Equals("text/*", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(type => type.Quality.GetValueOrDefault(1))
+            .Select(type => type.Quality.GetValueOrDefault(1))
+            .FirstOrDefault();
 
     /// <summary>Wraps the status text in a browser page that adds local times without replacing UTC.</summary>
     /// <param name="statistics">The current process's completed action count.</param>

@@ -24,6 +24,12 @@ public sealed class StatusPageTests
     [InlineData("text/html;q=0", false)]
     [InlineData("text/plain;q=1,text/html;q=0.5", false)]
     [InlineData("text/plain;q=0.5,text/html;q=1", true)]
+    [InlineData("text/html;q=0.5,text/*;q=1", false)]
+    [InlineData("text/html;q=0.5,*/*;q=1", false)]
+    [InlineData("text/html;q=0,text/*;q=1", false)]
+    [InlineData("text/html;q=0.5,text/plain;q=0.1,text/*;q=1", true)]
+    [InlineData("text/html;q=0.5,text/*;q=0.1,*/*;q=1", true)]
+    [InlineData("text/*", false)]
     public void SelectsRequestedFormat(string? accept, bool expected)
     {
         IList<MediaTypeHeaderValue>? types = accept is null
