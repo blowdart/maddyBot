@@ -57,8 +57,12 @@ public sealed class StatusPageTests
         Assert.Contains($"<pre id=\"status\">{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(text)}</pre>", html);
         Assert.Contains("new Intl.DateTimeFormat(undefined", html);
         Assert.Contains("timestamp.dateTime = instant", html);
-        Assert.Contains("browser local", html);
+        Assert.Contains("timeStyle: \"long\"", html);
+        Assert.Contains("hourCycle: \"h23\"", html);
+        Assert.DoesNotContain(" browser local)", html);
         Assert.DoesNotContain("innerHTML", html);
+        Assert.DoesNotContain("\U0001f525", text);
+        Assert.DoesNotContain("&#x1F525;", html);
     }
 
     /// <summary>Preserves the action count while explaining unknown progress at startup or ownership change.</summary>
@@ -70,7 +74,7 @@ public sealed class StatusPageTests
 
         string page = StatusPage.Render(statistics, null, null, s_now);
 
-        Assert.StartsWith(statistics.Summary + "\n", page);
+        Assert.StartsWith("1 action completed since 2026-10-16 14:54:40Z\n", page);
         Assert.Contains("Replay progress not yet known", page);
         Assert.DoesNotContain("behind", page);
         Assert.EndsWith("\n", page);
