@@ -17,10 +17,15 @@ def app():
             "vpc": {"id": "existing-vpc"},
             "databases": [{"name": "existing-database"}],
             "envs": [{"key": "secret", "value": "encrypted-value"}],
-            "workers": [{
+            "ingress": {"rules": [{"component": {"name": "bot"}, "match": {"path": {"prefix": "/"}}}]},
+            "workers": [{"name": "unrelated-worker", "image": {"tag": "untouched"}}],
+            "services": [{
                 "name": "bot",
                 "instance_count": 1,
+                "http_port": 8080,
                 "image": {"registry_type": "DOCR", "repository": "maddybot", "tag": "old"},
+                "envs": [{"key": "service-secret", "value": "encrypted-value"}],
+                "health_check": {"http_path": "/health/live", "port": 8080},
                 "liveness_health_check": {"http_path": "/health/live", "port": 8080},
                 "termination": {"grace_period_seconds": 60},
             }],
@@ -32,11 +37,11 @@ def app():
 class ReleaseTests(unittest.TestCase):
     def test_preserves_everything_except_image_selection(self):
         original = app()
-        original["spec"]["workers"].append({"name": "other", "image": {"tag": "untouched"}})
+        original["spec"]["services"].append({"name": "other", "image": {"tag": "untouched"}})
         saved = copy.deepcopy(original)
         actual = release.updated_spec(original, "bot", "idunno-registry", DIGEST)
         expected = copy.deepcopy(original["spec"])
-        expected["workers"][0]["image"] = {
+        expected["services"][0]["image"] = {
             "registry_type": "DOCR", "repository": "maddybot",
             "registry": "idunno-registry", "digest": DIGEST,
         }
@@ -46,12 +51,18 @@ class ReleaseTests(unittest.TestCase):
     def test_rejects_unsafe_targets(self):
         for change in (
             lambda a: a.update(pending_deployment={"phase": "DEPLOYING"}),
-            lambda a: a["spec"]["workers"][0].update(instance_count=2),
-            lambda a: a["spec"]["workers"][0].update(name="wrong"),
-            lambda a: a["spec"]["workers"][0].pop("liveness_health_check"),
-            lambda a: a["spec"]["workers"][0]["image"].update(repository="other"),
-            lambda a: a["spec"]["workers"][0]["image"].update(registry="other"),
-            lambda a: a["spec"]["workers"][0]["image"].update(deploy_on_push={"enabled": True}),
+            lambda a: a["spec"]["services"][0].update(instance_count=2),
+            lambda a: a["spec"]["services"][0].update(autoscaling={"min_instance_count": 1, "max_instance_count": 2}),
+            lambda a: a["spec"]["services"][0].update(name="wrong"),
+            lambda a: a["spec"]["services"].append(copy.deepcopy(a["spec"]["services"][0])),
+            lambda a: a["spec"].pop("services"),
+            lambda a: a["spec"]["services"][0].pop("liveness_health_check"),
+            lambda a: a["spec"]["services"][0]["liveness_health_check"].update(http_path="/health/dependencies"),
+            lambda a: a["spec"]["services"][0]["liveness_health_check"].update(port=80),
+            lambda a: a["spec"]["services"][0].update(http_port=80),
+            lambda a: a["spec"]["services"][0]["image"].update(repository="other"),
+            lambda a: a["spec"]["services"][0]["image"].update(registry="other"),
+            lambda a: a["spec"]["services"][0]["image"].update(deploy_on_push={"enabled": True}),
         ):
             with self.subTest(change=change):
                 target = app()
@@ -62,6 +73,19 @@ class ReleaseTests(unittest.TestCase):
     def test_rejects_invalid_digest(self):
         with self.assertRaises(ValueError):
             release.updated_spec(app(), "bot", "idunno-registry", "latest")
+
+    def test_accepts_default_http_and_liveness_ports(self):
+        target = app()
+        target["spec"]["services"][0].pop("http_port")
+        target["spec"]["services"][0]["liveness_health_check"].pop("port")
+        actual = release.updated_spec(target, "bot", "idunno-registry", DIGEST)
+        self.assertEqual(DIGEST, actual["services"][0]["image"]["digest"])
+
+    def test_worker_with_matching_name_is_not_a_service(self):
+        target = app()
+        target["spec"]["workers"] = target["spec"].pop("services")
+        with self.assertRaisesRegex(ValueError, "exactly one existing web service"):
+            release.updated_spec(target, "bot", "idunno-registry", DIGEST)
 
     @patch.object(release, "api")
     def test_waits_for_exact_active_deployment(self, api):
