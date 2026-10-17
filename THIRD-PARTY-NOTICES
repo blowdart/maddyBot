@@ -80,6 +80,7 @@ Microsoft.Extensions.Options.ConfigurationExtensions     MIT
 Microsoft.Extensions.Primitives                          MIT
 Nerdbank.GitVersioning                                   MIT
 System.Formats.Cbor                                      MIT
+System.Security.AccessControl                            MIT
 xunit.analyzers                                          Apache-2.0
 xunit.v3.assert                                          Apache-2.0
 xunit.v3.common                                          Apache-2.0
