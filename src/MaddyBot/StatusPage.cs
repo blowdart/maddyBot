@@ -82,7 +82,8 @@ internal static class StatusPage
                 const text = status.textContent;
                 const formatter = new Intl.DateTimeFormat(undefined, {
                   dateStyle: "medium",
-                  timeStyle: "long"
+                  timeStyle: "long",
+                  hourCycle: "h23"
                 });
                 const fragment = document.createDocumentFragment();
                 let position = 0;
@@ -94,7 +95,7 @@ internal static class StatusPage
                   timestamp.textContent = match[0];
                   fragment.append(timestamp);
                   fragment.append(document.createTextNode(
-                    " (" + formatter.format(new Date(instant)) + " browser local)"
+                    " (" + formatter.format(new Date(instant)) + ")"
                   ));
                   position = match.index + match[0].length;
                 }
@@ -118,9 +119,16 @@ internal static class StatusPage
         DateTimeOffset? observedAt,
         DateTimeOffset now)
     {
+        const string decoration = " \U0001f525";
+        string summary = statistics.Summary;
+        if (summary.EndsWith(decoration, StringComparison.Ordinal))
+        {
+            summary = summary[..^decoration.Length];
+        }
+
         if (witnessedAt is not DateTimeOffset witnessed || observedAt is not DateTimeOffset observed)
         {
-            return $"{statistics.Summary}\nReplay progress not yet known; no handled event observed in this ownership period.\n";
+            return $"{summary}\nReplay progress not yet known; no handled event observed in this ownership period.\n";
         }
 
         TimeSpan lag = now - witnessed;
@@ -138,7 +146,7 @@ internal static class StatusPage
             : "";
 
         return string.Create(CultureInfo.InvariantCulture, $"""
-            {statistics.Summary}
+            {summary}
             {position}
             Last handled event witnessed: {witnessed.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z.
             Progress last observed: {observed.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z ({observationAge}).{activity}

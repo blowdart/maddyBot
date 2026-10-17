@@ -523,11 +523,11 @@ saved.
 ## Health and logs
 
 Open `/` for a quick status page. Browsers requesting `text/html` receive an HTML
-page that keeps UTC timestamps and adds the browser's local date, time, and time
-zone alongside them using JavaScript. With JavaScript disabled, UTC remains
+page that keeps UTC timestamps and adds the browser's local date, 24-hour time,
+and time zone alongside them using JavaScript. With JavaScript disabled, UTC remains
 visible. Command-line clients receive the original plain text; request
 `Accept: text/plain` explicitly when needed. The page starts with the action count:
-`<count> action(s) completed since <UTC date> 🔥`. The count resets on each process
+`<count> action(s) completed since <UTC date>`. The count resets on each process
 start and includes newly confirmed actions (including reconciled writes) or
 developer-mode simulations, not skipped targets or failed attempts.
 
