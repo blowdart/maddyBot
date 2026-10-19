@@ -662,6 +662,32 @@ Disable automatic registry-push deployments. Release pins the image digest,
 preserves the rest of the live app spec (including routes, secrets, and database
 settings), and waits for that exact deployment to become active.
 
+The `release` environment secret `DIGITALOCEAN_ACCESS_TOKEN` needs `app:read`,
+`app:update`, `registry:read`, `registry:update`, `database:read`, and `vpc:read`.
+DigitalOcean also requires `regions:read`, `sizes:read`, and `actions:read`
+as supporting scopes for `app:update`.
+Keep any other read scopes needed to return the app's complete configuration.
+DigitalOcean can omit `spec.vpc` when the token lacks `vpc:read`. The update
+submits the **full app spec**: `update_all_source_versions: false` does not make
+it image-only, and omitting VPC configuration can disconnect private networking.
+The script requires an existing VPC object with a nonzero UUID `id`, preserves
+that whole object without inferring a VPC, and refuses to submit an update if
+the VPC is absent/invalid or the live spec changes during its pre-write recheck.
+The recheck narrows a race window; it is not an atomic conditional update and
+cannot prevent a concurrent change between the last read and the write.
+
+The prepared request, update response, polled deployment specs, and final app
+and active deployment specs must retain the fetched VPC unchanged. A pre-write
+rejection sends no update. A verification failure after acceptance means the
+provider has already accepted the update: inspect App Platform before taking
+recovery action. A lost write response leaves acceptance uncertain. The script
+never automatically retries a write or submits a rollback.
+
+Rerunning an old GitHub workflow run uses its original source commit; it will
+**not** acquire this guard. After the fix is merged, any separately authorized
+release must use a new run on a commit containing it, with successful CI for
+that exact commit. Offline tests do not guarantee a safe live deployment.
+
 Production configuration uses environment variables:
 `Bot__AppPassword`, `Bot__ArchiveApiKey`, `Bot__CredentialEncryptionKey`,
 `Bot__Did`, `Bot__Handle`, and `ConnectionStrings__Bot`.
