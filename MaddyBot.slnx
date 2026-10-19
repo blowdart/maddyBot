@@ -21,6 +21,7 @@
     <File Path=".github\dependabot.yml" />
   </Folder>
   <Folder Name="/.github/instructions/">
+    <File Path=".github\instructions\digitalocean-deployment.instructions.md" />
     <File Path=".github\instructions\docs.instructions.md" />
   </Folder>
   <Folder Name="/.github/workflows/">
