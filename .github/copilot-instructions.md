@@ -172,6 +172,16 @@ When checking line endings locally, use `git ls-files --eol` and
   report it; do not change signing configuration, retry without authorization,
   delegate a retry, or commit unsigned.
 
+## DigitalOcean deployments
+
+Before planning or changing DigitalOcean deployments, advising on token scopes,
+or recovering a failed release, read
+[digitalocean-deployment.instructions.md](instructions/digitalocean-deployment.instructions.md).
+These rules apply to deployment discussions as well as code changes. Full-spec
+updates can disconnect production networking when token permissions hide VPC
+configuration; never submit an incomplete spec or automatically retry an
+uncertain write.
+
 ## GitHub Actions failed-test protocol
 
 1. Do not rerun or dispatch a failed workflow until its original failure is diagnosed
