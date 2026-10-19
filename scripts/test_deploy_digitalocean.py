@@ -1,6 +1,8 @@
 """Offline release checks: no database, DigitalOcean, or Bluesky access."""
 
 import copy
+import http.client
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -260,6 +262,33 @@ class ReleaseTests(unittest.TestCase):
             release.deploy("not-a-token", "app-id", "bot", "idunno-registry", DIGEST)
         self.assertEqual(3, api.call_count)
         self.assert_update_count(api, 1)
+
+    @patch.object(release.urllib.request, "urlopen")
+    def test_response_read_failures_warn_without_retrying_put(self, urlopen):
+        real_api = release.api
+        for error in (
+            http.client.IncompleteRead(b"secret-response-fragment", 100),
+            ConnectionResetError("secret-response-fragment"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                urlopen.reset_mock()
+                urlopen.return_value.__enter__.return_value.read.side_effect = error
+
+                def request(token, path, body=None):
+                    if body is None:
+                        return {"app": app()}
+                    return real_api(token, path, body)
+
+                with patch.object(release, "api", side_effect=request) as api:
+                    with self.assertRaisesRegex(RuntimeError, "provider may have accepted it") as caught:
+                        release.deploy("not-a-token", "app-id", "bot", "idunno-registry", DIGEST)
+                    self.assert_update_count(api, 1)
+                    self.assertEqual(3, api.call_count)
+                urlopen.assert_called_once()
+                self.assertEqual("PUT", urlopen.call_args.args[0].get_method())
+                self.assertIn("Inspect App Platform before retrying", str(caught.exception))
+                self.assertIn("no automatic retry or rollback", str(caught.exception))
+                self.assertNotIn("secret-response-fragment", "".join(traceback.format_exception(caught.exception)))
 
     @patch.object(release, "api")
     def test_superseded_or_wrong_image_is_not_success(self, api):

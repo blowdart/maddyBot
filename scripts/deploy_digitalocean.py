@@ -113,11 +113,12 @@ def deploy(token, app_id, service_name, registry, digest):
     # No retry of this write: a lost response can still have created a deployment.
     try:
         response = api(token, path, body)
-    except (RuntimeError, ValueError, TimeoutError) as error:
+    except Exception:
+        # Any write/read failure leaves acceptance uncertain; exceptions may contain response data.
         raise RuntimeError(
             "Update request failed; the provider may have accepted it. "
             "Inspect App Platform before retrying; no automatic retry or rollback was submitted."
-        ) from error
+        ) from None
     result = response["app"]
     verification = "Update accepted; verification failed. Inspect App Platform; no automatic retry or rollback"
     require_vpc(result.get("spec"), verification, fetched_vpc)
