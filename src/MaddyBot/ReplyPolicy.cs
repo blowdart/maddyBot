@@ -124,9 +124,11 @@ internal static partial class ReplyPolicy
         // CUSTOMIZE REPLY: build your reaction here, for example deriving text from the source
         // Post instead of choosing from Bot:Replies. We save this complete reply once, so retries
         // send the same thing. Keep the parent/root references if your action is still a reply.
+        // Change langs if your replies are written in a different language.
         Post reply = new(
             text: options.Replies[RandomNumberGenerator.GetInt32(options.Replies.Length)],
             createdAt: DateTimeOffset.UtcNow,
+            langs: ["en"],
             reply: new ReplyReferences(parent, post.Reply?.Root ?? parent),
             tags: ["bot", "\U0001f916"]);
 
