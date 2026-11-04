@@ -76,6 +76,9 @@ detect and `Bot:Replies` to what you want to say. No C# changes are needed for
 that. Set up your own bot account, secrets and database using the instructions
 below, and keep `Bot:DeveloperMode` enabled while checking the results.
 
+Replies are marked as English (`langs: ["en"]`). If you change the reply language,
+update `langs` in the **CUSTOMIZE REPLY** block in `src\MaddyBot\ReplyPolicy.cs`.
+
 **Also change the HTTP User-Agent** in `src\MaddyBot\Program.cs`: replace
 `httpUserAgent: "maddyBot/1.0"` with your own bot's name and version, for example
 `"MyWatcherBot/1.0"`. This identifies your application to the services it calls;

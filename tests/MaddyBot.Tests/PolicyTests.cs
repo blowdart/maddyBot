@@ -109,6 +109,7 @@ public sealed class PolicyTests
         Assert.NotEqual(reply.RecordKey, TestRecords.Work().RecordKey);
         idunno.Bluesky.Post post = TestRecords.Post(reply);
         Assert.Equal("It's just \"Aspire\" \U0001f92c", post.Text);
+        Assert.Equal(["en"], post.Langs);
         Assert.Equal(["bot", "\U0001f916"], post.Tags);
         Assert.Equal(reply.SourceUri, post.Reply!.Parent.Uri.ToString());
         Assert.Equal(TestRecords.CidValue, post.Reply.Parent.Cid.ToString());
