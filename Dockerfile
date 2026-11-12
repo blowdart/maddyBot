@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 RUN apt-get update && apt-get install --no-install-recommends -y clang zlib1g-dev && apt-get clean
 WORKDIR /src
 ARG GITHUB_ACTIONS
