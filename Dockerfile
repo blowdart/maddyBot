@@ -14,7 +14,7 @@ COPY src/MaddyBot/ src/MaddyBot/
 RUN dotnet restore src/MaddyBot/MaddyBot.csproj
 RUN dotnet publish src/MaddyBot/MaddyBot.csproj --configuration Release --runtime linux-x64 --no-restore --output /app
 
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime-deps:11.0 AS runtime
 USER root
 RUN apt-get update && apt-get install --no-install-recommends -y curl && apt-get clean
 WORKDIR /app
